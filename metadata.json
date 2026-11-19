@@ -1,0 +1,6 @@
+{
+  "name": "Sút Phạt 3D",
+  "description": "Trò chơi đá phạt bóng đá 3D với hiệu ứng xoáy bóng vật lý thực tế, hàng rào và thủ môn phản xạ.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,431 @@
+{
+  "entities": {
+    "UsernameClaim": {
+      "title": "UsernameClaim",
+      "description": "Maps a unique lowercase username to a Firebase Auth UID so usernames stay unique across all devices.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "username", "createdAt"]
+    },
+    "UserClubProfile": {
+      "title": "UserClubProfile",
+      "description": "Private cloud-persisted player account profile, FC Club coins, cards, lineup, missions, and online stats.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "usernameLower": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "coins": {
+          "type": "number"
+        },
+        "ownedIds": {
+          "type": "array"
+        },
+        "lineupIds": {
+          "type": "array"
+        },
+        "activeKickerCardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "activeGkCardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "packsOpened": {
+          "type": "number"
+        },
+        "missions": {
+          "type": "object",
+          "properties": {
+            "dailyDate": { "type": "string", "maxLength": 16 },
+            "weeklyKey": { "type": "string", "maxLength": 16 },
+            "dailyProgress": { "type": "object", "properties": {} },
+            "dailyClaimed": { "type": "array" },
+            "weeklyProgress": { "type": "object", "properties": {} },
+            "weeklyClaimed": { "type": "array" }
+          }
+        },
+        "onlineWins": {
+          "type": "number"
+        },
+        "onlineDraws": {
+          "type": "number"
+        },
+        "onlineLosses": {
+          "type": "number"
+        },
+        "onlineGoals": {
+          "type": "number"
+        },
+        "elo": {
+          "type": "number"
+        },
+        "bestScore": {
+          "type": "number"
+        },
+        "squadOvr": {
+          "type": "number"
+        },
+        "kickedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "kickReason": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "username",
+        "usernameLower",
+        "coins",
+        "ownedIds",
+        "lineupIds",
+        "activeKickerCardId",
+        "activeGkCardId",
+        "packsOpened",
+        "missions",
+        "onlineWins",
+        "onlineDraws",
+        "onlineLosses",
+        "onlineGoals",
+        "elo",
+        "bestScore",
+        "squadOvr",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public player summary displayed on the global online leaderboard (no PII).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "isPublic": {
+          "type": "boolean"
+        },
+        "squadOvr": {
+          "type": "number"
+        },
+        "elo": {
+          "type": "number"
+        },
+        "onlineWins": {
+          "type": "number"
+        },
+        "onlineGoals": {
+          "type": "number"
+        },
+        "bestScore": {
+          "type": "number"
+        },
+        "topCardName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "topCardOvr": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "username",
+        "isPublic",
+        "squadOvr",
+        "elo",
+        "onlineWins",
+        "onlineGoals",
+        "bestScore",
+        "topCardName",
+        "topCardOvr",
+        "updatedAt"
+      ]
+    },
+    "TransferListing": {
+      "title": "TransferListing",
+      "description": "Escrowed player-card transfer market listing enabling players to sell cards and claim Coin payouts.",
+      "type": "object",
+      "properties": {
+        "listingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sellerName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "cardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cardName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "cardOvr": {
+          "type": "number"
+        },
+        "cardPosition": {
+          "type": "string"
+        },
+        "cardRarity": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "price": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        },
+        "buyerUid": {
+          "type": ["string", "null"]
+        },
+        "buyerName": {
+          "type": ["string", "null"]
+        },
+        "payoutClaimed": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "listingId",
+        "sellerUid",
+        "sellerName",
+        "cardId",
+        "cardName",
+        "cardOvr",
+        "cardPosition",
+        "cardRarity",
+        "price",
+        "status",
+        "buyerUid",
+        "buyerName",
+        "payoutClaimed",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "InboxMessage": {
+      "title": "InboxMessage",
+      "description": "Global and 1-on-1 direct inbox text chat messages persisted for signed-in accounts.",
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "recipientUid": {
+          "type": ["string", "null"]
+        },
+        "recipientName": {
+          "type": ["string", "null"]
+        },
+        "participants": {
+          "type": "array"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "messageId",
+        "channel",
+        "senderUid",
+        "senderName",
+        "recipientUid",
+        "recipientName",
+        "participants",
+        "text",
+        "createdAt"
+      ]
+    },
+    "OnlinePresence": {
+      "title": "OnlinePresence",
+      "description": "Live online presence heartbeat and current activity state for signed-in players.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 24,
+          "pattern": "^[a-zA-Z0-9_]+$"
+        },
+        "activity": {
+          "type": "string"
+        },
+        "modeLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "squadOvr": {
+          "type": "number"
+        },
+        "online": {
+          "type": "boolean"
+        },
+        "roomCode": {
+          "type": ["string", "null"]
+        },
+        "lastSeenMs": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "username",
+        "activity",
+        "modeLabel",
+        "squadOvr",
+        "online",
+        "roomCode",
+        "lastSeenMs",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/usernames/{usernameKey}": {
+      "schema": { "$ref": "#/entities/UsernameClaim" },
+      "description": "Username reservation records keyed by lowercase username."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserClubProfile" },
+      "description": "Private user account save state (coins, FC cards, squad, missions, online record, optional admin kick status)."
+    },
+    "/leaderboard/{userId}": {
+      "schema": { "$ref": "#/entities/LeaderboardEntry" },
+      "description": "Public online leaderboard entries keyed by user UID."
+    },
+    "/transfer_listings/{listingId}": {
+      "schema": { "$ref": "#/entities/TransferListing" },
+      "description": "Player-to-player FC Card Transfer Market escrow listings."
+    },
+    "/inbox_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/InboxMessage" },
+      "description": "Global lobby & private 1-on-1 direct messages for players."
+    },
+    "/online_presence/{userId}": {
+      "schema": { "$ref": "#/entities/OnlinePresence" },
+      "description": "Live online status & current game mode presence for signed-in players."
+    }
+  }
+}

@@ -1,0 +1,388 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidCardId(cardId) {
+      return cardId is string && cardId.size() >= 1 && cardId.size() <= 48 && cardId.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUsernameKey(key) {
+      return key is string && key.size() >= 3 && key.size() <= 24 && key.matches('^[a-z0-9_]+$');
+    }
+
+    function isValidUsernameDisplay(name) {
+      return name is string && name.size() >= 3 && name.size() <= 24 && name.matches('^[a-zA-Z0-9_]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email == 'bot522409@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function isValidUsernameClaim(data, usernameKey) {
+      return data.keys().hasAll(['uid', 'username', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'username', 'createdAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && isValidUsernameDisplay(data.username)
+        && data.username.lower() == usernameKey
+        && data.createdAt is timestamp
+        && data.createdAt == request.time;
+    }
+
+    function isValidMissions(m) {
+      return m is map
+        && m.keys().hasAll(['dailyDate', 'weeklyKey', 'dailyProgress', 'dailyClaimed', 'weeklyProgress', 'weeklyClaimed'])
+        && m.keys().hasOnly(['dailyDate', 'weeklyKey', 'dailyProgress', 'dailyClaimed', 'weeklyProgress', 'weeklyClaimed'])
+        && m.dailyDate is string && m.dailyDate.size() <= 16
+        && m.weeklyKey is string && m.weeklyKey.size() <= 16
+        && m.dailyProgress is map && m.dailyProgress.size() <= 24
+        && m.weeklyProgress is map && m.weeklyProgress.size() <= 24
+        && m.dailyClaimed is list && m.dailyClaimed.size() <= 24
+        && (m.dailyClaimed.size() == 0 || (m.dailyClaimed[0] is string && m.dailyClaimed[0].size() <= 40))
+        && m.weeklyClaimed is list && m.weeklyClaimed.size() <= 24
+        && (m.weeklyClaimed.size() == 0 || (m.weeklyClaimed[0] is string && m.weeklyClaimed[0].size() <= 40));
+    }
+
+    function isValidUserClubProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'username', 'usernameLower', 'coins', 'ownedIds', 'lineupIds',
+          'activeKickerCardId', 'activeGkCardId', 'packsOpened', 'missions',
+          'onlineWins', 'onlineDraws', 'onlineLosses', 'onlineGoals', 'elo',
+          'bestScore', 'squadOvr', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'username', 'usernameLower', 'coins', 'ownedIds', 'lineupIds',
+          'activeKickerCardId', 'activeGkCardId', 'packsOpened', 'missions',
+          'onlineWins', 'onlineDraws', 'onlineLosses', 'onlineGoals', 'elo',
+          'bestScore', 'squadOvr', 'kickedAt', 'kickReason', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isValidUsernameDisplay(data.username)
+        && isValidUsernameKey(data.usernameLower)
+        && data.username.lower() == data.usernameLower
+        && data.coins is number && data.coins >= 0
+        && data.ownedIds is list && data.ownedIds.size() >= 5 && data.ownedIds.size() <= 250
+        && data.ownedIds[0] is string && data.ownedIds[0].size() >= 1 && data.ownedIds[0].size() <= 48
+        && data.lineupIds is list && data.lineupIds.size() == 5
+        && data.lineupIds[0] is string && data.lineupIds[0].size() >= 1 && data.lineupIds[0].size() <= 48
+        && isValidCardId(data.activeKickerCardId)
+        && isValidCardId(data.activeGkCardId)
+        && data.packsOpened is number && data.packsOpened >= 0 && data.packsOpened <= 1000000
+        && isValidMissions(data.missions)
+        && data.onlineWins is number && data.onlineWins >= 0 && data.onlineWins <= 1000000
+        && data.onlineDraws is number && data.onlineDraws >= 0 && data.onlineDraws <= 1000000
+        && data.onlineLosses is number && data.onlineLosses >= 0 && data.onlineLosses <= 1000000
+        && data.onlineGoals is number && data.onlineGoals >= 0 && data.onlineGoals <= 10000000
+        && data.elo is number && data.elo >= 0 && data.elo <= 10000
+        && data.bestScore is number && data.bestScore >= 0 && data.bestScore <= 10000000
+        && data.squadOvr is number && data.squadOvr >= 1 && data.squadOvr <= 200
+        && (!('kickedAt' in data) || data.kickedAt is timestamp)
+        && (!('kickReason' in data) || (data.kickReason is string && data.kickReason.size() <= 140))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminCoinAdjustment(newData, oldData) {
+      return newData.diff(oldData).affectedKeys().hasOnly(['coins', 'updatedAt'])
+        && newData.coins is number && newData.coins >= 0
+        && newData.updatedAt is timestamp && newData.updatedAt == request.time;
+    }
+
+    function isValidAdminKickUpdate(newData, oldData) {
+      return newData.diff(oldData).affectedKeys().hasOnly(['kickedAt', 'kickReason', 'updatedAt'])
+        && newData.keys().hasAll(['kickedAt', 'kickReason', 'updatedAt'])
+        && newData.kickedAt is timestamp && newData.kickedAt == request.time
+        && newData.kickReason is string && newData.kickReason.size() >= 1 && newData.kickReason.size() <= 140
+        && newData.updatedAt is timestamp && newData.updatedAt == request.time;
+    }
+
+    function isValidLeaderboardEntry(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'username', 'isPublic', 'squadOvr', 'elo',
+          'onlineWins', 'onlineGoals', 'bestScore', 'topCardName',
+          'topCardOvr', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'username', 'isPublic', 'squadOvr', 'elo',
+          'onlineWins', 'onlineGoals', 'bestScore', 'topCardName',
+          'topCardOvr', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isValidUsernameDisplay(data.username)
+        && data.isPublic is bool && data.isPublic == true
+        && data.squadOvr is number && data.squadOvr >= 1 && data.squadOvr <= 200
+        && data.elo is number && data.elo >= 0 && data.elo <= 10000
+        && data.onlineWins is number && data.onlineWins >= 0 && data.onlineWins <= 1000000
+        && data.onlineGoals is number && data.onlineGoals >= 0 && data.onlineGoals <= 10000000
+        && data.bestScore is number && data.bestScore >= 0 && data.bestScore <= 10000000
+        && data.topCardName is string && data.topCardName.size() >= 1 && data.topCardName.size() <= 48
+        && data.topCardOvr is number && data.topCardOvr >= 1 && data.topCardOvr <= 200
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTransferListing(data, listingId) {
+      return data.keys().hasAll([
+          'listingId', 'sellerUid', 'sellerName', 'cardId', 'cardName',
+          'cardOvr', 'cardPosition', 'cardRarity', 'price', 'status',
+          'buyerUid', 'buyerName', 'payoutClaimed', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'listingId', 'sellerUid', 'sellerName', 'cardId', 'cardName',
+          'cardOvr', 'cardPosition', 'cardRarity', 'price', 'status',
+          'buyerUid', 'buyerName', 'payoutClaimed', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.listingId)
+        && data.listingId == listingId
+        && isValidId(data.sellerUid)
+        && isValidUsernameDisplay(data.sellerName)
+        && isValidCardId(data.cardId)
+        && data.cardName is string && data.cardName.size() >= 1 && data.cardName.size() <= 48
+        && data.cardOvr is number && data.cardOvr >= 1 && data.cardOvr <= 200
+        && data.cardPosition is string && data.cardPosition in ['GK', 'CB', 'CM', 'LW', 'RW', 'ST']
+        && data.cardRarity is string && data.cardRarity.size() >= 1 && data.cardRarity.size() <= 24
+        && data.price is number && data.price >= 100
+        && data.status is string && data.status in ['active', 'sold', 'cancelled']
+        && (data.buyerUid == null || isValidId(data.buyerUid))
+        && (data.buyerName == null || isValidUsernameDisplay(data.buyerName))
+        && data.payoutClaimed is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInboxMessage(data, messageId) {
+      return data.keys().hasAll([
+          'messageId', 'channel', 'senderUid', 'senderName',
+          'recipientUid', 'recipientName', 'participants', 'text', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'messageId', 'channel', 'senderUid', 'senderName',
+          'recipientUid', 'recipientName', 'participants', 'text', 'createdAt'
+        ])
+        && isValidId(data.messageId)
+        && data.messageId == messageId
+        && data.channel is string && data.channel in ['global', 'dm']
+        && isValidId(data.senderUid)
+        && data.senderUid == request.auth.uid
+        && isValidUsernameDisplay(data.senderName)
+        && (data.recipientUid == null || isValidId(data.recipientUid))
+        && (data.recipientName == null || isValidUsernameDisplay(data.recipientName))
+        && data.participants is list
+        && (
+          (data.channel == 'global'
+            && data.recipientUid == null
+            && data.recipientName == null
+            && data.participants.size() == 0)
+          || (data.channel == 'dm'
+            && isValidId(data.recipientUid)
+            && data.recipientUid != request.auth.uid
+            && isValidUsernameDisplay(data.recipientName)
+            && data.participants.size() == 2
+            && data.senderUid in data.participants
+            && data.recipientUid in data.participants)
+        )
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 500
+        && data.createdAt is timestamp
+        && data.createdAt == request.time;
+    }
+
+    function isValidOnlinePresence(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'username', 'activity', 'modeLabel', 'squadOvr',
+          'online', 'roomCode', 'lastSeenMs', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'username', 'activity', 'modeLabel', 'squadOvr',
+          'online', 'roomCode', 'lastSeenMs', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && isValidUsernameDisplay(data.username)
+        && data.activity is string && data.activity in ['menu', 'playing', 'queue', 'waiting', 'duel']
+        && data.modeLabel is string && data.modeLabel.size() >= 1 && data.modeLabel.size() <= 48
+        && data.squadOvr is number && data.squadOvr >= 1 && data.squadOvr <= 200
+        && data.online is bool
+        && (data.roomCode == null || (data.roomCode is string && data.roomCode.size() >= 4 && data.roomCode.size() <= 12))
+        && data.lastSeenMs is number && data.lastSeenMs >= 0
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    // Username reservation lookup (single-doc get only; no list scraping)
+    match /usernames/{usernameKey} {
+      allow get: if isValidUsernameKey(usernameKey);
+      allow list: if false;
+      allow create: if isSignedIn()
+        && isValidUsernameKey(usernameKey)
+        && isValidUsernameClaim(incoming(), usernameKey)
+        && !exists(/databases/$(database)/documents/usernames/$(usernameKey));
+      allow update, delete: if false;
+    }
+
+    // Private per-user FC Club save & account state
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserClubProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && (
+        (isOwner(userId)
+          && isValidUserClubProfile(incoming(), userId)
+          && incoming().uid == existing().uid
+          && incoming().username == existing().username
+          && incoming().usernameLower == existing().usernameLower
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'coins', 'ownedIds', 'lineupIds', 'activeKickerCardId', 'activeGkCardId',
+            'packsOpened', 'missions', 'onlineWins', 'onlineDraws', 'onlineLosses',
+            'onlineGoals', 'elo', 'bestScore', 'squadOvr', 'updatedAt'
+          ]))
+        || (isAdmin() && (
+          isValidAdminCoinAdjustment(incoming(), existing())
+          || isValidAdminKickUpdate(incoming(), existing())
+        ))
+      );
+      allow delete: if false;
+    }
+
+    // Public global online leaderboard (zero PII)
+    match /leaderboard/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if resource.data.isPublic == true && resource.data.elo is number;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidLeaderboardEntry(incoming(), userId)
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidLeaderboardEntry(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().username == existing().username
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'isPublic', 'squadOvr', 'elo', 'onlineWins', 'onlineGoals',
+          'bestScore', 'topCardName', 'topCardOvr', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Player-to-Player FC Card Transfer Market (Escrow & Payout-Claim)
+    match /transfer_listings/{listingId} {
+      allow get: if isValidId(listingId) && isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isValidId(listingId)
+        && isSignedIn()
+        && isValidTransferListing(incoming(), listingId)
+        && incoming().sellerUid == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().buyerUid == null
+        && incoming().buyerName == null
+        && incoming().payoutClaimed == false
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(listingId)
+        && isSignedIn()
+        && isValidTransferListing(incoming(), listingId)
+        && incoming().listingId == existing().listingId
+        && incoming().sellerUid == existing().sellerUid
+        && incoming().sellerName == existing().sellerName
+        && incoming().cardId == existing().cardId
+        && incoming().cardName == existing().cardName
+        && incoming().cardOvr == existing().cardOvr
+        && incoming().cardPosition == existing().cardPosition
+        && incoming().cardRarity == existing().cardRarity
+        && incoming().price == existing().price
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (existing().sellerUid == request.auth.uid
+            && existing().status == 'active'
+            && incoming().status == 'cancelled'
+            && incoming().buyerUid == null
+            && incoming().buyerName == null
+            && incoming().payoutClaimed == true
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'payoutClaimed', 'updatedAt']))
+          || (existing().sellerUid != request.auth.uid
+            && existing().status == 'active'
+            && incoming().status == 'sold'
+            && incoming().buyerUid == request.auth.uid
+            && incoming().buyerName is string
+            && incoming().payoutClaimed == false
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'buyerUid', 'buyerName', 'updatedAt']))
+          || (existing().sellerUid == request.auth.uid
+            && existing().status == 'sold'
+            && existing().payoutClaimed == false
+            && incoming().status == 'sold'
+            && incoming().buyerUid == existing().buyerUid
+            && incoming().buyerName == existing().buyerName
+            && incoming().payoutClaimed == true
+            && incoming().diff(existing()).affectedKeys().hasOnly(['payoutClaimed', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // Inbox Global Chat & 1-on-1 Direct Messages
+    match /inbox_messages/{messageId} {
+      allow get: if isValidId(messageId) && isSignedIn() && (
+        existing().channel == 'global' || request.auth.uid in existing().participants
+      );
+      allow list: if isSignedIn() && (
+        resource.data.channel == 'global' || request.auth.uid in resource.data.participants
+      );
+      allow create: if isValidId(messageId)
+        && isSignedIn()
+        && isValidInboxMessage(incoming(), messageId);
+      allow update, delete: if false;
+    }
+
+    // Live Online Presence for Arena visibility
+    match /online_presence/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow list: if isSignedIn()
+        && resource.data.online == true
+        && resource.data.lastSeenMs is number;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidOnlinePresence(incoming(), userId);
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidOnlinePresence(incoming(), userId)
+        && incoming().uid == existing().uid;
+      allow delete: if isValidId(userId) && isOwner(userId);
+    }
+  }
+}
