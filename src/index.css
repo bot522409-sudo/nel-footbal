@@ -76,6 +76,25 @@
   animation: goalFlashSweep 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes winterSnowFall {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(var(--snow-drift, 24px), 52vh, 0) rotate(180deg);
+  }
+  100% {
+    transform: translate3d(calc(var(--snow-drift, 24px) * -0.5), 112vh, 0) rotate(360deg);
+  }
+}
+
+.animate-winter-snow {
+  animation-name: winterSnowFall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

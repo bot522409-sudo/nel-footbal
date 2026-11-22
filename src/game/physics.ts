@@ -86,53 +86,62 @@ export function computeLaunchState(
   const estFlightTime = horizDist / (speed * 0.92);
   const targetY = Math.max(0.18, aim.y);
   const gravityDrop = 0.5 * GRAVITY * estFlightTime * estFlightTime;
+  // Distance-adaptive elevation compensation: standard kicks ~0.75, long passes/corners (36m+) ~0.97 so corners clear cleanly into the box
+  const gravComp = THREE.MathUtils.lerp(
+    0.75,
+    0.97,
+    THREE.MathUtils.clamp((horizDist - 24) / 14, 0, 1),
+  );
+  const smoothCurve =
+    Math.sign(spin.curve) * Math.pow(Math.abs(spin.curve), 1.2);
+  const smoothDip = Math.sign(spin.dip) * Math.pow(Math.abs(spin.dip), 1.12);
 
   const effectiveCurveInput =
     skill === 'curler'
-      ? (Math.abs(spin.curve) > 0.15 ? spin.curve : -0.92) * 1.24
+      ? (Math.abs(spin.curve) > 0.15 ? smoothCurve : -0.92) * 1.18
       : skill === 'rabona'
       ? (Math.abs(spin.curve) > 0.15
-          ? spin.curve
+          ? smoothCurve
           : kicker?.foot === 'left'
           ? 0.94
-          : -0.94) * 1.28
+          : -0.94) * 1.22
       : skill === 'trivela'
       ? (Math.abs(spin.curve) > 0.15
-          ? spin.curve
+          ? smoothCurve
           : kicker?.foot === 'left'
           ? -0.95
-          : 0.95) * 1.32
+          : 0.95) * 1.26
       : skill === 'knuckle' || skill === 'power_shot'
-      ? spin.curve * 0.12
-      : spin.curve;
+      ? smoothCurve * 0.12
+      : smoothCurve;
 
   const effectiveDipInput =
     skill === 'dip_topspin'
-      ? Math.max(0.75, spin.dip) * 1.48
+      ? Math.max(0.72, smoothDip) * 1.38
       : skill === 'bicycle_volley'
-      ? Math.max(0.55, spin.dip) * 1.28
+      ? Math.max(0.52, smoothDip) * 1.22
       : skill === 'power_shot'
-      ? Math.max(0.32, spin.dip) * 0.92
+      ? Math.max(0.28, smoothDip) * 0.9
       : skill === 'chip_panenka'
       ? -0.78
       : skill === 'trivela'
-      ? Math.max(0.25, spin.dip) * 1.15
+      ? Math.max(0.22, smoothDip) * 1.1
       : skill === 'knuckle'
-      ? 0.22
-      : spin.dip;
+      ? 0.2
+      : smoothDip;
 
   const effectiveDip = effectiveDipInput * curveMult;
   const spinLiftBias =
     skill === 'chip_panenka'
       ? 1.55
-      : -effectiveDip * 0.42 + Math.abs(effectiveDip) * 0.1;
-  const effectiveAimY = targetY + gravityDrop * 0.72 + spinLiftBias;
+      : -effectiveDip * 0.36 + Math.abs(effectiveDip) * 0.08;
+  const effectiveAimY = targetY + gravityDrop * gravComp + spinLiftBias;
 
   const dir = new THREE.Vector3(dx, effectiveAimY - ballStart.y, dz).normalize();
   const vel = dir.multiplyScalar(speed);
 
-  const curveRadPerSec = effectiveCurveInput * 88 * curveMult;
-  const dipRadPerSec = effectiveDipInput * 56 * curveMult;
+  const curveRadPerSec = effectiveCurveInput * 64 * curveMult;
+  const dipRadPerSec = effectiveDipInput * 44 * curveMult;
 
   const rightAxis = new THREE.Vector3(-dir.z, 0, dir.x).normalize();
   const omega = new THREE.Vector3(0, -curveRadPerSec, 0).addScaledVector(
@@ -307,6 +316,45 @@ export function predictBallAtZ(
 }
 
 /**
+ * Computes lateral trajectory bend (in meters) at target plane z = aim.z ?? 0
+ * caused by Magnus spin + wind compared to a spinless calm launch.
+ */
+export function computeCurveDeviationMeters(
+  ballStart: THREE.Vector3,
+  aim: AimTarget,
+  power01: number,
+  spin: SpinInput,
+  wind: WindState,
+  kicker?: KickerProfile,
+  skill: ShotSkillType = 'normal',
+): number {
+  const targetZ = aim.z ?? 0;
+  const curvedLaunch = computeLaunchState(
+    ballStart,
+    aim,
+    power01,
+    spin,
+    kicker,
+    skill,
+  );
+  const straightLaunch = computeLaunchState(
+    ballStart,
+    aim,
+    power01,
+    { curve: 0, dip: 0 },
+    kicker,
+    'normal',
+  );
+  const curvedHit = predictBallAtZ(curvedLaunch, targetZ, wind);
+  const straightHit = predictBallAtZ(
+    straightLaunch,
+    targetZ,
+    { x: 0, z: 0 },
+  );
+  return Number((curvedHit.x - straightHit.x).toFixed(2));
+}
+
+/**
  * Predicts where the ball crosses z = 0.45 so the Goalkeeper can read, sprint & dive realistically.
  */
 export function planGoalkeeperDive(
@@ -345,7 +393,7 @@ export function planGoalkeeperDive(
     reactionMap[difficulty] + (kicker?.deceptionSec ?? 0) * (difficulty === 'extreme' ? 0.55 : 0.78);
 
   const curveDeception =
-    (initialState.omega.y / 88) * errorMap[difficulty] * 0.72;
+    (initialState.omega.y / 64) * errorMap[difficulty] * 0.72;
   const randomMiss = (Math.random() - 0.5) * errorMap[difficulty];
 
   const predictedX = THREE.MathUtils.clamp(

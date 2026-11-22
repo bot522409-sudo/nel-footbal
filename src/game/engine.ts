@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   ArticulatedPlayer,
   createArticulatedPlayer,
@@ -11,6 +15,7 @@ import { createGoalSparkTexture } from './textures';
 import {
   BALL_RADIUS,
   BallSimState,
+  computeCurveDeviationMeters,
   computeLaunchState,
   computePreviewArc,
   GOAL_DEPTH,
@@ -29,6 +34,7 @@ import {
   CameraPreset,
   CHALLENGE_SCENARIOS,
   CORNER_SCENARIOS,
+  CURVE_LAB_SPOTS,
   Difficulty,
   DIFFICULTY_LABELS,
   DribbleSkillType,
@@ -85,6 +91,9 @@ const _crowdArmObj = new THREE.Object3D();
 const _flashObj = new THREE.Object3D();
 const _dustObj = new THREE.Object3D();
 const _weatherObj = new THREE.Object3D();
+const _sprintObj = new THREE.Object3D();
+const _cometObj = new THREE.Object3D();
+const _sprintCol = new THREE.Color();
 const _camSpherical = new THREE.Spherical();
 const _raycaster = new THREE.Raycaster();
 const _ndc = new THREE.Vector2();
@@ -120,6 +129,8 @@ export class FreeKickEngine {
   private onLightningFlash?: (intensity: number) => void;
 
   private renderer!: THREE.WebGLRenderer;
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private isSoftwareGl = false;
@@ -141,15 +152,22 @@ export class FreeKickEngine {
     markOffset: THREE.Vector3;
   }> = [];
 
-  // Visual helpers: Aim reticle, preview arc, shot trail, confetti
+  // Visual helpers: Aim reticle, preview arc, straight guide, curve targets, shot trail, confetti
   private aimReticleGroup!: THREE.Group;
   private aimRingMat!: THREE.MeshBasicMaterial;
   private previewLine!: THREE.Line;
+  private straightGuideGeo!: THREE.BufferGeometry;
+  private straightGuideLine!: THREE.Line;
   private previewDots: THREE.InstancedMesh | null = null;
+  private curveTargetsGroup!: THREE.Group;
+  private curveTargetRingL!: THREE.Mesh;
+  private curveTargetRingR!: THREE.Mesh;
+  private ballCometMesh!: THREE.InstancedMesh;
   private trailPoints: THREE.Vector3[] = [];
   private trailLine!: THREE.Line;
   private trailGeo!: THREE.BufferGeometry;
   private trailMat!: THREE.LineBasicMaterial;
+  private trailHexColor = 0xfbbf24;
 
   private confettiMesh!: THREE.InstancedMesh;
   private confettiVelocities: THREE.Vector3[] = [];
@@ -176,8 +194,25 @@ export class FreeKickEngine {
   private turfDustPos: THREE.Vector3[] = [];
   private turfDustVel: THREE.Vector3[] = [];
   private turfDustLife: number[] = [];
+  private sprintTrailMesh!: THREE.InstancedMesh;
+  private sprintTrailPos: THREE.Vector3[] = [];
+  private sprintTrailVel: THREE.Vector3[] = [];
+  private sprintTrailLife: number[] = [];
+  private sprintTrailMaxLife: number[] = [];
+  private sprintSpawnAccum = 0;
   private gkTurfImpactDone = false;
+  private gkSlideDustTimer = 0;
   private impactShakeTimer = 0;
+
+  // Goalkeeper Dive Motion Trail & Glove Parry Shockwave VFX
+  private gkDiveTrailGroup!: THREE.Group;
+  private gkDiveTrailMat!: THREE.MeshBasicMaterial;
+  private gkSaveRingGroup!: THREE.Group;
+  private gkSaveRingMesh!: THREE.Mesh;
+  private gkSaveFlashMesh!: THREE.Mesh;
+  private gkSaveRingMat!: THREE.MeshBasicMaterial;
+  private gkSaveFlashMat!: THREE.MeshBasicMaterial;
+  private gkSaveRingTimer = 99;
 
   // Lighting & 3D Weather System (Clear, Rain, Snow, Storm + Lightning)
   private hemiLight!: THREE.HemisphereLight;
@@ -188,7 +223,7 @@ export class FreeKickEngine {
   private lightningBoltSegs: Array<{ core: THREE.Mesh; glow: THREE.Mesh }> = [];
   private lightningCoreMat!: THREE.MeshBasicMaterial;
   private lightningGlowMat!: THREE.MeshBasicMaterial;
-  private weather: WeatherType = 'clear';
+  private weather: WeatherType = 'snow';
   private rainMesh!: THREE.InstancedMesh;
   private rainPos: THREE.Vector3[] = [];
   private rainSpeed: number[] = [];
@@ -215,6 +250,7 @@ export class FreeKickEngine {
   private totalRounds = CHALLENGE_SCENARIOS.length;
   private scenario: KickScenario = CHALLENGE_SCENARIOS[0];
   private effectiveWind: WindState = { x: 0.4, z: 0 };
+  private customWind: WindState | null = null;
   private score = 0;
   private bestScore = 0;
   private streak = 0;
@@ -361,6 +397,11 @@ export class FreeKickEngine {
   private matchLastShotDist = 0;
   private matchGoalSeq = 0;
   private matchGoalTier: 'normal' | 'super' | null = null;
+  private matchGoalTeam: 'home' | 'away' | null = null;
+  private matchGoalScorerIdx: number | null = null;
+  private matchLastShooterIdx: number | null = null;
+  private matchGoalNetHit = false;
+  private readonly matchGoalCelebrateDuration = 3.8;
   private homeLineup: FcPlayerCard[] = [];
 
   // Crowd cheering / disappointment animation intensity
@@ -450,7 +491,7 @@ export class FreeKickEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.18;
+    this.renderer.toneMappingExposure = 0.98;
     this.renderer.setPixelRatio(
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
     );
@@ -466,7 +507,7 @@ export class FreeKickEngine {
     this.scene = new THREE.Scene();
     const skyColor = 0x071226;
     this.scene.background = new THREE.Color(skyColor);
-    this.scene.fog = new THREE.FogExp2(skyColor, 0.0046);
+    this.scene.fog = new THREE.FogExp2(skyColor, 0.002);
 
     this.camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 260);
 
@@ -478,11 +519,11 @@ export class FreeKickEngine {
     ).texture;
     pmremGenerator.dispose();
 
-    // 3-Point Warm/Cool Stadium Lighting Rig
-    this.hemiLight = new THREE.HemisphereLight(0xa5cbff, 0x163c22, 1.02);
+    // 3-Point Warm/Cool Stadium Lighting Rig (balanced non-glaring broadcast illumination)
+    this.hemiLight = new THREE.HemisphereLight(0xa5cbff, 0x163c22, 0.78);
     this.scene.add(this.hemiLight);
 
-    this.keyLight = new THREE.DirectionalLight(0xfff3db, 2.4);
+    this.keyLight = new THREE.DirectionalLight(0xfff3db, 1.65);
     this.keyLight.position.set(22, 34, 24);
     this.keyLight.castShadow = !this.isSoftwareGl;
     this.keyLight.shadow.mapSize.set(2048, 2048);
@@ -492,11 +533,12 @@ export class FreeKickEngine {
     this.keyLight.shadow.camera.right = 28;
     this.keyLight.shadow.camera.top = 28;
     this.keyLight.shadow.camera.bottom = -28;
-    this.keyLight.shadow.bias = -0.0005;
-    this.keyLight.shadow.normalBias = 0.02;
+    this.keyLight.shadow.bias = -0.0004;
+    this.keyLight.shadow.normalBias = 0.018;
+    this.keyLight.shadow.radius = 1.25;
     this.scene.add(this.keyLight);
 
-    this.rimLight = new THREE.DirectionalLight(0x7dd3fc, 1.2);
+    this.rimLight = new THREE.DirectionalLight(0x7dd3fc, 0.85);
     this.rimLight.position.set(-18, 16, -24);
     this.scene.add(this.rimLight);
 
@@ -524,6 +566,27 @@ export class FreeKickEngine {
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
+      const pr = Math.min(window.devicePixelRatio || 1, 2);
+      const msaaTarget = new THREE.WebGLRenderTarget(
+        Math.max(1, Math.floor(width * pr)),
+        Math.max(1, Math.floor(height * pr)),
+        {
+          type: THREE.HalfFloatType,
+          samples: this.renderer.capabilities.isWebGL2 ? 4 : 0,
+        },
+      );
+      this.composer = new EffectComposer(this.renderer, msaaTarget);
+      this.composer.setPixelRatio(pr);
+      this.composer.setSize(width, height);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(Math.floor(width * pr), Math.floor(height * pr)),
+        0.07,
+        0.22,
+        1.08,
+      );
+      this.composer.addPass(this.bloomPass);
+      this.composer.addPass(new OutputPass());
     }
   }
 
@@ -557,6 +620,47 @@ export class FreeKickEngine {
     }
     this.scene.add(this.aimReticleGroup);
 
+    // Ghost straight-line reference (visible in Curve Lab to compare Magnus bend vs straight aim)
+    this.straightGuideGeo = new THREE.BufferGeometry();
+    const straightGuideMat = new THREE.LineDashedMaterial({
+      color: 0xcbd5e1,
+      dashSize: 0.45,
+      gapSize: 0.35,
+      transparent: true,
+      opacity: 0.36,
+    });
+    this.straightGuideLine = new THREE.Line(this.straightGuideGeo, straightGuideMat);
+    this.straightGuideLine.visible = false;
+    this.scene.add(this.straightGuideLine);
+
+    // Glowing Top-Corner Target Hoops (visible during Curve Lab training)
+    this.curveTargetsGroup = new THREE.Group();
+    this.curveTargetsGroup.visible = false;
+    const hoopOuterGeo = new THREE.TorusGeometry(0.46, 0.032, 10, 32);
+    const hoopInnerGeo = new THREE.TorusGeometry(0.24, 0.018, 8, 24);
+    const hoopOuterMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.92,
+    });
+    const hoopInnerMat = new THREE.MeshBasicMaterial({
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0.95,
+    });
+    this.curveTargetRingL = new THREE.Mesh(hoopOuterGeo, hoopOuterMat);
+    this.curveTargetRingL.position.set(-(GOAL_HALF_WIDTH - 0.62), GOAL_HEIGHT - 0.54, 0.08);
+    const innerL = new THREE.Mesh(hoopInnerGeo, hoopInnerMat);
+    this.curveTargetRingL.add(innerL);
+
+    this.curveTargetRingR = new THREE.Mesh(hoopOuterGeo, hoopOuterMat);
+    this.curveTargetRingR.position.set(GOAL_HALF_WIDTH - 0.62, GOAL_HEIGHT - 0.54, 0.08);
+    const innerR = new THREE.Mesh(hoopInnerGeo, hoopInnerMat);
+    this.curveTargetRingR.add(innerR);
+
+    this.curveTargetsGroup.add(this.curveTargetRingL, this.curveTargetRingR);
+    this.scene.add(this.curveTargetsGroup);
+
     // Preview trajectory dotted line
     const previewGeo = new THREE.BufferGeometry();
     const previewMat = new THREE.LineDashedMaterial({
@@ -564,32 +668,45 @@ export class FreeKickEngine {
       dashSize: 0.35,
       gapSize: 0.25,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.78,
     });
     this.previewLine = new THREE.Line(previewGeo, previewMat);
     this.scene.add(this.previewLine);
 
     // Preview curve dots (InstancedMesh for crisp visual legibility)
-    const dotGeo = new THREE.SphereGeometry(0.042, 8, 8);
+    const dotGeo = new THREE.SphereGeometry(0.044, 8, 8);
     const dotMat = new THREE.MeshBasicMaterial({
       color: 0x34d399,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
     });
     this.previewDots = new THREE.InstancedMesh(dotGeo, dotMat, 24);
     this.previewDots.frustumCulled = false;
     this.scene.add(this.previewDots);
 
-    // Ball Flight Trail Ribbon Line
+    // Ball Flight Trail Ribbon Line + Volumetric Glowing Comet Afterimage
     this.trailGeo = new THREE.BufferGeometry();
     this.trailMat = new THREE.LineBasicMaterial({
       color: 0xfbbf24,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.92,
     });
     this.trailLine = new THREE.Line(this.trailGeo, this.trailMat);
     this.trailLine.frustumCulled = false;
     this.scene.add(this.trailLine);
+
+    const cometGeo = new THREE.SphereGeometry(BALL_RADIUS * 0.78, 10, 10);
+    const cometMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.ballCometMesh = new THREE.InstancedMesh(cometGeo, cometMat, 18);
+    this.ballCometMesh.visible = false;
+    this.ballCometMesh.frustumCulled = false;
+    this.scene.add(this.ballCometMesh);
 
     // 3D Match Player Selection Rings
     const activeRingGeo = new THREE.RingGeometry(0.42, 0.56, 28);
@@ -623,12 +740,20 @@ export class FreeKickEngine {
       innerGeo,
       tickGeo,
       this.aimRingMat,
+      this.straightGuideGeo,
+      straightGuideMat,
+      hoopOuterGeo,
+      hoopInnerGeo,
+      hoopOuterMat,
+      hoopInnerMat,
       previewGeo,
       previewMat,
       dotGeo,
       dotMat,
       this.trailGeo,
       this.trailMat,
+      cometGeo,
+      cometMat,
       activeRingGeo,
       activeRingMat,
       carrierRingGeo,
@@ -746,6 +871,84 @@ export class FreeKickEngine {
     }
     this.scene.add(this.turfDustMesh);
 
+    // Goalkeeper Airborne Kinetic Dive Trail (3 curved luminous speed ribbons)
+    this.gkDiveTrailGroup = new THREE.Group();
+    this.gkDiveTrailGroup.visible = false;
+    const diveStreakGeo = new THREE.PlaneGeometry(1.35, 0.22);
+    this.gkDiveTrailMat = new THREE.MeshBasicMaterial({
+      map: sparkTex,
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const trailOffsets: Array<[number, number, number]> = [
+      [0, 0.34, 0],
+      [-0.08, 0.0, 0.05],
+      [0.06, -0.32, -0.04],
+    ];
+    for (let i = 0; i < trailOffsets.length; i++) {
+      const ribbon = new THREE.Mesh(diveStreakGeo, this.gkDiveTrailMat);
+      ribbon.position.set(trailOffsets[i][0], trailOffsets[i][1], trailOffsets[i][2]);
+      ribbon.scale.set(i === 0 ? 1.15 : 0.92, i === 1 ? 1.25 : 0.82, 1);
+      this.gkDiveTrailGroup.add(ribbon);
+    }
+    this.scene.add(this.gkDiveTrailGroup);
+
+    // Goalkeeper Glove Save Shockwave Ring & Parry Flare
+    this.gkSaveRingGroup = new THREE.Group();
+    this.gkSaveRingGroup.visible = false;
+    const gkRingGeo = new THREE.RingGeometry(0.22, 0.42, 32);
+    this.gkSaveRingMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.gkSaveRingMesh = new THREE.Mesh(gkRingGeo, this.gkSaveRingMat);
+    const gkFlashGeo = new THREE.PlaneGeometry(0.95, 0.95);
+    this.gkSaveFlashMat = new THREE.MeshBasicMaterial({
+      map: sparkTex,
+      color: 0xfde047,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.gkSaveFlashMesh = new THREE.Mesh(gkFlashGeo, this.gkSaveFlashMat);
+    this.gkSaveRingGroup.add(this.gkSaveRingMesh, this.gkSaveFlashMesh);
+    this.scene.add(this.gkSaveRingGroup);
+
+    // High-Speed Running Cleat Sparks / Energy Trail Pool (96 additive particles)
+    const sprintCount = 96;
+    const sprintGeo = new THREE.OctahedronGeometry(0.068, 0);
+    const sprintMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    this.sprintTrailMesh = new THREE.InstancedMesh(sprintGeo, sprintMat, sprintCount);
+    this.sprintTrailMesh.visible = false;
+    this.sprintTrailMesh.frustumCulled = false;
+    for (let i = 0; i < sprintCount; i++) {
+      this.sprintTrailPos.push(new THREE.Vector3(0, -10, 0));
+      this.sprintTrailVel.push(new THREE.Vector3());
+      this.sprintTrailLife.push(0);
+      this.sprintTrailMaxLife.push(0.4);
+      this.sprintTrailMesh.setColorAt(i, _sprintCol.setHex(0x34d399));
+    }
+    if (this.sprintTrailMesh.instanceColor) {
+      this.sprintTrailMesh.instanceColor.needsUpdate = true;
+    }
+    this.scene.add(this.sprintTrailMesh);
+
     this.extraDisposables.push(
       geo,
       mat,
@@ -756,7 +959,89 @@ export class FreeKickEngine {
       this.goalShockwaveMat,
       turfGeo,
       turfMat,
+      diveStreakGeo,
+      this.gkDiveTrailMat,
+      gkRingGeo,
+      this.gkSaveRingMat,
+      gkFlashGeo,
+      this.gkSaveFlashMat,
+      sprintGeo,
+      sprintMat,
     );
+  }
+
+  private spawnSprintParticle(
+    x: number,
+    y: number,
+    z: number,
+    vx: number,
+    vy: number,
+    vz: number,
+    hexColor: number,
+  ): void {
+    if (!this.sprintTrailMesh) return;
+    this.sprintTrailMesh.visible = true;
+    for (let i = 0; i < this.sprintTrailLife.length; i++) {
+      if (this.sprintTrailLife[i] > 0.02) continue;
+      this.sprintTrailPos[i].set(x, y, z);
+      this.sprintTrailVel[i].set(vx, vy, vz);
+      const maxL = 0.28 + Math.random() * 0.22;
+      this.sprintTrailLife[i] = maxL;
+      this.sprintTrailMaxLife[i] = maxL;
+      this.sprintTrailMesh.setColorAt(i, _sprintCol.setHex(hexColor));
+      if (this.sprintTrailMesh.instanceColor) {
+        this.sprintTrailMesh.instanceColor.needsUpdate = true;
+      }
+      return;
+    }
+  }
+
+  private updateBallCometVisuals(): void {
+    if (!this.ballCometMesh) return;
+    const count = this.trailPoints.length;
+    if (count < 2) {
+      this.ballCometMesh.visible = false;
+      return;
+    }
+    this.ballCometMesh.visible = true;
+    const maxSpheres = 18;
+    _sprintCol.setHex(this.trailHexColor);
+    for (let i = 0; i < maxSpheres; i++) {
+      const t = i / (maxSpheres - 1);
+      const idx = Math.floor((1 - t) * (count - 1));
+      const pt = this.trailPoints[idx];
+      if (!pt || idx >= count - 1) {
+        _cometObj.position.set(0, -10, 0);
+        _cometObj.scale.setScalar(0.001);
+      } else {
+        _cometObj.position.copy(pt);
+        const s = Math.max(0.14, (1 - t) * 0.95);
+        _cometObj.scale.setScalar(s);
+        this.ballCometMesh.setColorAt(i, _sprintCol);
+      }
+      _cometObj.updateMatrix();
+      this.ballCometMesh.setMatrixAt(i, _cometObj.matrix);
+    }
+    this.ballCometMesh.instanceMatrix.needsUpdate = true;
+    if (this.ballCometMesh.instanceColor) {
+      this.ballCometMesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  private triggerGkSaveImpact(x: number, y: number, z: number): void {
+    this.gkSaveRingTimer = 0;
+    this.gkSaveRingGroup.visible = true;
+    this.gkSaveRingGroup.position.set(x, Math.max(0.28, y), Math.max(0.25, z));
+    this.gkSaveRingGroup.scale.setScalar(0.5);
+    this.gkSaveRingMat.opacity = 0.95;
+    this.gkSaveFlashMat.opacity = 0.95;
+
+    this.goalFlashTimer = 0.15;
+    this.goalIsSuper = false;
+    this.goalFlashLight.color.setHex(0x38bdf8);
+    this.goalFlashLight.position.set(x, Math.max(1.0, y), Math.max(0.4, z + 0.35));
+    this.goalFlashLight.intensity = 10;
+    this.impactShakeTimer = Math.max(this.impactShakeTimer, 0.14);
   }
 
   private spawnTurfBurst(
@@ -973,11 +1258,49 @@ export class FreeKickEngine {
   }
 
   private getEffectiveWind(baseWind: WindState): WindState {
+    if (this.mode === 'practice' && this.practiceFocus === 'curve_lab' && this.customWind) {
+      return {
+        x: Number(THREE.MathUtils.clamp(this.customWind.x, -6, 6).toFixed(2)),
+        z: Number(THREE.MathUtils.clamp(this.customWind.z, -5, 5).toFixed(2)),
+      };
+    }
     const mult = DIFFICULTY_LABELS[this.difficulty].windMult;
     return {
       x: Number((baseWind.x * mult).toFixed(2)),
       z: Number((baseWind.z * mult).toFixed(2)),
     };
+  }
+
+  public setCustomWind(wind: WindState): void {
+    this.customWind = {
+      x: Number(THREE.MathUtils.clamp(wind.x, -6, 6).toFixed(2)),
+      z: Number(THREE.MathUtils.clamp(wind.z, -5, 5).toFixed(2)),
+    };
+    this.effectiveWind = { ...this.customWind };
+    this.scenario = {
+      ...this.scenario,
+      wind: { ...this.customWind },
+    };
+    this.updateAimAndPreviewVisuals();
+    this.updateCornerFlags();
+    this.emitSnapshot();
+  }
+
+  public resetCustomWind(): void {
+    this.customWind = null;
+    const baseSpot =
+      CURVE_LAB_SPOTS.find((s) => s.id === this.scenario.id) ||
+      PRACTICE_SPOTS.find((s) => s.id === this.scenario.id) ||
+      this.getDefaultPracticeSpot(this.practiceFocus);
+    const resolved = this.getEffectiveWind(baseSpot.wind);
+    this.effectiveWind = { ...resolved };
+    this.scenario = {
+      ...this.scenario,
+      wind: resolved,
+    };
+    this.updateAimAndPreviewVisuals();
+    this.updateCornerFlags();
+    this.emitSnapshot();
   }
 
   private getActiveKickerId(): KickerId {
@@ -1319,10 +1642,12 @@ export class FreeKickEngine {
   }
 
   private setupScenario(scenario: KickScenario, snapCamera = false): void {
+    const resolvedWind = this.getEffectiveWind(scenario.wind);
+    this.effectiveWind = { ...resolvedWind };
     this.scenario = {
       ...scenario,
       wallCount: this.getEffectiveWallCount(scenario.wallCount),
-      wind: this.getEffectiveWind(scenario.wind),
+      wind: resolvedWind,
     };
 
     this.ballStart.set(
@@ -1365,10 +1690,15 @@ export class FreeKickEngine {
     this.wallHasJumped = false;
     this.trailPoints = [];
     this.trailGeo.setFromPoints([]);
+    this.updateBallCometVisuals();
     this.replayFrames = [];
     this.goalCelebrateTimer = 0;
     this.goalIsSuper = false;
     this.gkTurfImpactDone = false;
+    this.gkSlideDustTimer = 0;
+    this.gkSaveRingTimer = 99;
+    if (this.gkSaveRingGroup) this.gkSaveRingGroup.visible = false;
+    if (this.gkDiveTrailGroup) this.gkDiveTrailGroup.visible = false;
     this.impactShakeTimer = 0;
 
     const isCornerSpot =
@@ -1408,8 +1738,8 @@ export class FreeKickEngine {
         this.scenario.wallCount > 0 ? -Math.sign(this.gkHomeX || 1) : 1;
       if (isCornerSpot) {
         const oppSide = this.ballStart.x < 0 ? 1 : -1;
-        this.teammateStartPos.set(oppSide * 1.6, 0, 10.8);
-        this.teammateTargetPos.set(0, 0, 5.4);
+        this.teammateStartPos.set(oppSide * 2.2, 0, 9.6);
+        this.teammateTargetPos.set(oppSide * -0.4, 0, 5.4);
       } else if (this.ballStart.z <= 13.0) {
         // 11m Penalty: #9 waits outside the D then bursts in for Đá Bồi!
         this.teammateStartPos.set(openSide * 2.8, 0, 16.5);
@@ -1434,16 +1764,17 @@ export class FreeKickEngine {
 
     if (this.turnRole === 'kick') {
       if (isCornerSpot) {
+        // Default corner setup: natural inswinging arc toward 6-yard box / near top corner
         this.aim = {
           x: 0,
-          y: 2.15,
-          z: 7.2,
+          y: 1.85,
+          z: 3.4,
         };
         this.spin = {
-          curve: this.ballStart.x < 0 ? 0.78 : -0.78,
-          dip: 0.22,
+          curve: this.ballStart.x < 0 ? -0.42 : 0.42,
+          dip: 0.08,
         };
-        this.power = 0.72;
+        this.power = 0.68;
       } else {
         // Default smart aim toward open corner around wall
         const openSide =
@@ -1483,8 +1814,23 @@ export class FreeKickEngine {
     this.goalkeeper.headGroup.rotation.set(0, 0, 0);
     this.goalkeeper.leftArm.rotation.set(-0.65, 0, -0.45);
     this.goalkeeper.rightArm.rotation.set(-0.65, 0, 0.45);
+    if (this.goalkeeper.leftElbowPivot) {
+      this.goalkeeper.leftElbowPivot.rotation.set(-0.22, 0, 0);
+    }
+    if (this.goalkeeper.rightElbowPivot) {
+      this.goalkeeper.rightElbowPivot.rotation.set(-0.22, 0, 0);
+    }
     this.goalkeeper.leftLeg.rotation.set(0, 0, 0.12);
     this.goalkeeper.rightLeg.rotation.set(0, 0, -0.12);
+    if (this.goalkeeper.leftKneePivot) {
+      this.goalkeeper.leftKneePivot.rotation.set(0.08, 0, 0);
+    }
+    if (this.goalkeeper.rightKneePivot) {
+      this.goalkeeper.rightKneePivot.rotation.set(0.08, 0, 0);
+    }
+    if (this.gkDiveTrailGroup) {
+      this.gkDiveTrailGroup.visible = false;
+    }
   }
 
   private applyGoalkeeperDivePose(
@@ -1496,34 +1842,47 @@ export class FreeKickEngine {
   ): void {
     const p = THREE.MathUtils.clamp(diveProgress, 0, 1);
     const crouch = p < 0.14 ? Math.sin((p / 0.14) * Math.PI) : 0;
-    const stretch = THREE.MathUtils.smoothstep(p, 0.04, 0.32);
-    const plunge = THREE.MathUtils.smoothstep(p, 0.46, 0.88);
+    const launchMix = THREE.MathUtils.smoothstep(p, 0.05, 0.24);
+    const airWave = Math.sin(THREE.MathUtils.clamp((p - 0.07) / 0.50, 0, 1) * Math.PI);
+    const plunge = THREE.MathUtils.smoothstep(p, 0.50, 0.84);
+    const recover = THREE.MathUtils.smoothstep(p, 0.84, 1.0);
     const turfBounce =
       p > 0.56 && p < 0.84
-        ? Math.sin(((p - 0.56) / 0.28) * Math.PI) * 0.075 * (1 - p * 0.35)
+        ? Math.sin(((p - 0.56) / 0.28) * Math.PI) * 0.072 * (1 - p * 0.35)
         : 0;
     const dir = Math.sign(diveDir);
 
-    this.goalkeeper.bodyPivot.position.set(0, bodyY - crouch * 0.12 + turfBounce, 0);
+    this.goalkeeper.bodyPivot.position.set(
+      0,
+      bodyY - crouch * 0.16 + turfBounce,
+      0,
+    );
+    // Open chest slightly toward incoming shot during airborne flight, roll smoothly onto hip on grass slide
     this.goalkeeper.bodyPivot.rotation.set(
-      pitchX,
-      dir !== 0 ? -dir * 0.22 * Math.sin(THREE.MathUtils.clamp(p / 0.75, 0, 1) * Math.PI) : 0,
+      crouch * 0.30 + pitchX * launchMix,
+      dir !== 0 ? dir * (0.24 * airWave - 0.12 * plunge) * launchMix : 0,
       rollZ,
     );
 
     if (dir !== 0) {
-      // Head stays focused upward toward the ball during the horizontal flight & landing
+      // Head locks horizontally onto the incoming ball throughout the dive
       this.goalkeeper.headGroup.rotation.set(
-        -0.28 * stretch,
-        dir * 0.18 * stretch,
-        dir * 0.56 * stretch,
+        0.08 * launchMix - crouch * 0.18,
+        dir * 0.20 * launchMix,
+        dir * THREE.MathUtils.lerp(0.68, 0.42, recover) * launchMix,
       );
 
-      // Lead arm extends long & low/high to reach the corner, top arm arches above torso, then braces on turf
-      const leadArmRz = dir * THREE.MathUtils.lerp(3.04, 2.58, plunge);
+      // Lead arm & top arm coil briefly, then explode straight forward-and-outward (+rx when rz ~ PI)
+      const leadArmRz = dir * THREE.MathUtils.lerp(2.94, 2.50, plunge);
       const trailArmRz = -dir * THREE.MathUtils.lerp(2.74, 2.26, plunge);
-      const leadArmRx = THREE.MathUtils.lerp(-0.28, 0.44, plunge);
-      const trailArmRx = THREE.MathUtils.lerp(-0.46, 0.58, plunge);
+      const leadArmRx = THREE.MathUtils.lerp(0.24, 0.44, plunge);
+      const trailArmRx = THREE.MathUtils.lerp(0.32, 0.54, plunge);
+      const coilArmRx = -0.78;
+      const elbowBend = THREE.MathUtils.lerp(
+        -0.68,
+        THREE.MathUtils.lerp(-0.04, -0.56, plunge),
+        launchMix,
+      );
 
       const leftTargetRx = dir < 0 ? leadArmRx : trailArmRx;
       const leftTargetRz = dir < 0 ? leadArmRz : trailArmRz;
@@ -1531,47 +1890,116 @@ export class FreeKickEngine {
       const rightTargetRz = dir > 0 ? leadArmRz : trailArmRz;
 
       this.goalkeeper.leftArm.rotation.set(
-        THREE.MathUtils.lerp(-0.65, leftTargetRx, stretch),
+        THREE.MathUtils.lerp(coilArmRx, leftTargetRx, launchMix),
         0,
-        THREE.MathUtils.lerp(-0.45, leftTargetRz, stretch),
+        THREE.MathUtils.lerp(-0.52, leftTargetRz, launchMix),
       );
       this.goalkeeper.rightArm.rotation.set(
-        THREE.MathUtils.lerp(-0.65, rightTargetRx, stretch),
+        THREE.MathUtils.lerp(coilArmRx, rightTargetRx, launchMix),
         0,
-        THREE.MathUtils.lerp(0.45, rightTargetRz, stretch),
+        THREE.MathUtils.lerp(0.52, rightTargetRz, launchMix),
       );
+      if (this.goalkeeper.leftElbowPivot) {
+        this.goalkeeper.leftElbowPivot.rotation.set(elbowBend, 0, 0);
+      }
+      if (this.goalkeeper.rightElbowPivot) {
+        this.goalkeeper.rightElbowPivot.rotation.set(elbowBend, 0, 0);
+      }
 
-      // Explosive knee kick: lead leg snaps forward, push-off leg trails dynamically
-      const leadLegRx = THREE.MathUtils.lerp(-0.44, -0.18, plunge) * stretch;
-      const trailLegRx = THREE.MathUtils.lerp(0.46, 0.2, plunge) * stretch;
+      // Athletic split legs: push-off trail leg extends straight; upper/lead leg tucks dynamically at the knee
+      const leadLegHip = THREE.MathUtils.lerp(-0.44, -0.22, plunge) * launchMix;
+      const trailLegHip = THREE.MathUtils.lerp(0.34, 0.14, plunge) * launchMix;
+      const leadKnee =
+        crouch * 0.92 + THREE.MathUtils.lerp(0.76, 0.98, plunge) * launchMix;
+      const trailKnee =
+        crouch * 0.92 + THREE.MathUtils.lerp(0.14, 0.56, plunge) * launchMix;
+
       this.goalkeeper.leftLeg.rotation.set(
-        dir < 0 ? leadLegRx : trailLegRx,
+        crouch * -0.52 + (dir < 0 ? leadLegHip : trailLegHip),
         0,
-        dir < 0 ? 0.12 : 0.24,
+        dir < 0 ? 0.12 : 0.22,
       );
       this.goalkeeper.rightLeg.rotation.set(
-        dir > 0 ? leadLegRx : trailLegRx,
+        crouch * -0.52 + (dir > 0 ? leadLegHip : trailLegHip),
         0,
-        dir > 0 ? -0.12 : -0.24,
+        dir > 0 ? -0.12 : -0.22,
       );
+      if (this.goalkeeper.leftKneePivot) {
+        this.goalkeeper.leftKneePivot.rotation.set(
+          dir < 0 ? leadKnee : trailKnee,
+          0,
+          0,
+        );
+      }
+      if (this.goalkeeper.rightKneePivot) {
+        this.goalkeeper.rightKneePivot.rotation.set(
+          dir > 0 ? leadKnee : trailKnee,
+          0,
+          0,
+        );
+      }
+
+      // Dynamic airborne kinetic motion trail behind the flying goalkeeper
+      if (this.gkDiveTrailGroup && p > 0.10 && p < 0.72) {
+        const skin = PLAYER_SKINS[this.playerSkinId];
+        const useCustomSkin =
+          this.turnRole === 'gk' && this.playerSkinId !== 'default';
+        const trailHex = useCustomSkin
+          ? skin.auraColor
+          : GK_PROFILES[this.getActiveGkId()].gloveColor;
+        this.gkDiveTrailMat.color.set(trailHex);
+        this.gkDiveTrailMat.opacity = Math.max(0, airWave * 0.56);
+        this.gkDiveTrailGroup.visible = this.gkDiveTrailMat.opacity > 0.02;
+        this.gkDiveTrailGroup.position.set(
+          this.goalkeeper.group.position.x - dir * 0.45,
+          this.goalkeeper.group.position.y + bodyY + 0.06,
+          0.38,
+        );
+        this.gkDiveTrailGroup.rotation.set(0, 0, rollZ * 0.55);
+        const streakLen = 0.65 + airWave * 0.95;
+        this.gkDiveTrailGroup.scale.set(streakLen, 0.85 + airWave * 0.25, 1);
+      } else if (this.gkDiveTrailGroup) {
+        this.gkDiveTrailGroup.visible = false;
+      }
     } else {
-      // Center sprawl: plunge chest-first forward onto turf while thrusting hands toward the shot
-      this.goalkeeper.headGroup.rotation.set(-0.35 * stretch, 0, 0);
-      const armRx = THREE.MathUtils.lerp(-1.68, -1.16, plunge);
-      const armSpread = THREE.MathUtils.lerp(0.24, 0.36, plunge);
-      this.goalkeeper.leftArm.rotation.set(
-        THREE.MathUtils.lerp(-0.65, armRx, stretch),
+      // Center sprawl: explosive split-coil -> chest-first thrust with forward-reaching gloves
+      this.goalkeeper.headGroup.rotation.set(
+        -0.24 * launchMix,
         0,
-        THREE.MathUtils.lerp(-0.45, -armSpread, stretch),
+        0,
+      );
+      const armRx = THREE.MathUtils.lerp(-1.62, -1.14, plunge);
+      const armSpread = THREE.MathUtils.lerp(0.22, 0.34, plunge);
+      const centerElbow = THREE.MathUtils.lerp(-0.62, THREE.MathUtils.lerp(-0.08, -0.48, plunge), launchMix);
+      this.goalkeeper.leftArm.rotation.set(
+        THREE.MathUtils.lerp(-0.72, armRx, launchMix),
+        0,
+        THREE.MathUtils.lerp(-0.45, -armSpread, launchMix),
       );
       this.goalkeeper.rightArm.rotation.set(
-        THREE.MathUtils.lerp(-0.65, armRx, stretch),
+        THREE.MathUtils.lerp(-0.72, armRx, launchMix),
         0,
-        THREE.MathUtils.lerp(0.45, armSpread, stretch),
+        THREE.MathUtils.lerp(0.45, armSpread, launchMix),
       );
-      const legTrail = THREE.MathUtils.lerp(0.32, 0.16, plunge) * stretch;
-      this.goalkeeper.leftLeg.rotation.set(legTrail, 0, 0.14);
-      this.goalkeeper.rightLeg.rotation.set(legTrail, 0, -0.14);
+      if (this.goalkeeper.leftElbowPivot) {
+        this.goalkeeper.leftElbowPivot.rotation.set(centerElbow, 0, 0);
+      }
+      if (this.goalkeeper.rightElbowPivot) {
+        this.goalkeeper.rightElbowPivot.rotation.set(centerElbow, 0, 0);
+      }
+      const legTrail = THREE.MathUtils.lerp(0.32, 0.16, plunge) * launchMix;
+      const centerKnee = crouch * 0.88 + THREE.MathUtils.lerp(0.42, 0.65, plunge) * launchMix;
+      this.goalkeeper.leftLeg.rotation.set(crouch * -0.48 + legTrail, 0, 0.15);
+      this.goalkeeper.rightLeg.rotation.set(crouch * -0.48 + legTrail, 0, -0.15);
+      if (this.goalkeeper.leftKneePivot) {
+        this.goalkeeper.leftKneePivot.rotation.set(centerKnee, 0, 0);
+      }
+      if (this.goalkeeper.rightKneePivot) {
+        this.goalkeeper.rightKneePivot.rotation.set(centerKnee, 0, 0);
+      }
+      if (this.gkDiveTrailGroup) {
+        this.gkDiveTrailGroup.visible = false;
+      }
     }
   }
 
@@ -1595,16 +2023,24 @@ export class FreeKickEngine {
       this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
     if (isCorner && this.cameraPreset === 'kicker') {
       const sideSign = Math.sign(this.ballStart.x || -1);
-      const pos = this.ballStart
-        .clone()
-        .add(new THREE.Vector3(sideSign * 4.4, 3.2, -3.4));
-      pos.z = Math.max(0.8, pos.z);
+      const pos = new THREE.Vector3(
+        this.ballStart.x + sideSign * 5.2,
+        3.65,
+        3.4,
+      );
       const lookAt = new THREE.Vector3(
-        this.aim.x * 0.4,
-        1.45,
-        Math.max(4.5, (this.aim.z ?? 6.5) * 0.8),
+        THREE.MathUtils.clamp(this.aim.x * 0.25, -4, 4),
+        1.35,
+        THREE.MathUtils.clamp((this.aim.z ?? 4.5) * 0.75, 2.5, 9.0),
       );
       return { pos, lookAt };
+    }
+    if (isCorner && this.cameraPreset === 'broadcast') {
+      const sideSign = Math.sign(this.ballStart.x || -1);
+      return {
+        pos: new THREE.Vector3(sideSign * 14.0, 9.2, 19.5),
+        lookAt: new THREE.Vector3(sideSign * -6.0, 1.2, 4.2),
+      };
     }
 
     const dirToGoal = new THREE.Vector3(
@@ -1652,6 +2088,13 @@ export class FreeKickEngine {
   }
 
   private updateAimAndPreviewVisuals(): void {
+    const isCurveLab =
+      this.mode === 'practice' && this.practiceFocus === 'curve_lab';
+    const showCurveTargets = !this.paused && isCurveLab && this.turnRole === 'kick';
+    if (this.curveTargetsGroup) {
+      this.curveTargetsGroup.visible = showCurveTargets;
+    }
+
     const showAim =
       !this.paused &&
       this.mode !== 'match' &&
@@ -1660,6 +2103,9 @@ export class FreeKickEngine {
     this.aimReticleGroup.visible = showAim;
     this.previewLine.visible = showAim;
     if (this.previewDots) this.previewDots.visible = showAim;
+    if (this.straightGuideLine) {
+      this.straightGuideLine.visible = showAim && isCurveLab;
+    }
 
     if (!showAim) return;
 
@@ -1675,6 +2121,15 @@ export class FreeKickEngine {
       Math.abs(this.aim.x) < GOAL_HALF_WIDTH - 0.12 &&
       this.aim.y < GOAL_HEIGHT - 0.1;
     this.aimRingMat.color.setHex(insideGoal ? 0x34d399 : 0xfbbf24);
+
+    if (this.straightGuideLine && isCurveLab) {
+      const straightPts = [
+        this.ballStart.clone(),
+        new THREE.Vector3(this.aim.x, this.aim.y, aimZ),
+      ];
+      this.straightGuideGeo.setFromPoints(straightPts);
+      this.straightGuideLine.computeLineDistances();
+    }
 
     const kicker = KICKER_PROFILES[this.kickerId];
     const arcPts = computePreviewArc(
@@ -1781,6 +2236,10 @@ export class FreeKickEngine {
     this.activeDribbleSkill = null;
     this.activeDribbleSkillTimer = 0;
     this.matchGoalTier = null;
+    this.matchGoalTeam = null;
+    this.matchGoalScorerIdx = null;
+    this.matchLastShooterIdx = null;
+    this.matchGoalNetHit = false;
     this.matchEventText = `GIAO BÓNG (${this.matchFormat.toUpperCase()}): ${TEAM_PROFILES[this.homeTeamId].shortCode} vs ${TEAM_PROFILES[this.awayTeamId].shortCode}`;
     this.matchEventTimer = 2.0;
     this.phase = 'playing';
@@ -1788,6 +2247,7 @@ export class FreeKickEngine {
     this.lastOutcome = null;
     this.trailPoints = [];
     this.trailGeo.setFromPoints([]);
+    this.updateBallCometVisuals();
 
     this.ballObj.mesh.position.set(0, BALL_RADIUS, PITCH_HALF_L);
     this.ballObj.shadowMesh.position.set(0, 0.018, PITCH_HALF_L);
@@ -2448,6 +2908,7 @@ export class FreeKickEngine {
     };
     this.matchBallOwnerIdx = null;
     this.matchLastTouchTeam = carrier.team;
+    this.matchLastShooterIdx = carrier.index;
     this.matchKickCooldown = 0.28;
     carrier.tackleCooldown = 0.4;
     carrier.facingYaw = Math.atan2(dx, dz);
@@ -2602,6 +3063,9 @@ export class FreeKickEngine {
   }
 
   private getDefaultPracticeSpot(focus: PracticeFocus): KickScenario {
+    if (focus === 'curve_lab') {
+      return CURVE_LAB_SPOTS[0];
+    }
     if (focus === 'penalty') {
       return PRACTICE_SPOTS.find((s) => s.id === 'spot-penalty') ?? PRACTICE_SPOTS[0];
     }
@@ -2616,6 +3080,9 @@ export class FreeKickEngine {
 
   public setMode(mode: GameMode): void {
     this.mode = mode;
+    if (mode !== 'practice') {
+      this.customWind = null;
+    }
     if (mode === 'match') {
       if (!this.paused) {
         soundEngine.unlock();
@@ -2666,6 +3133,9 @@ export class FreeKickEngine {
       this.vsBotHalf = 'player_kick';
       this.lastOutcome = null;
       const spot = this.getDefaultPracticeSpot(this.practiceFocus);
+      if (this.practiceFocus === 'curve_lab') {
+        this.shotSkill = 'curler';
+      }
       this.setupScenario(
         {
           ...spot,
@@ -2673,15 +3143,33 @@ export class FreeKickEngine {
         },
         true,
       );
+      if (this.practiceFocus === 'curve_lab') {
+        this.spin = { curve: -0.9, dip: 0.36 };
+        this.power = 0.78;
+        this.updateAimAndPreviewVisuals();
+        this.emitSnapshot();
+      }
     }
   }
 
   public setPracticeFocus(focus: PracticeFocus): void {
     this.practiceFocus = focus;
+    if (focus !== 'curve_lab') {
+      this.customWind = null;
+    }
     if (this.mode === 'practice') {
       const spot = this.getDefaultPracticeSpot(focus);
       this.turnRole = 'kick';
+      if (focus === 'curve_lab') {
+        this.shotSkill = 'curler';
+      }
       this.setupScenario({ ...spot, difficulty: this.difficulty }, true);
+      if (focus === 'curve_lab') {
+        this.spin = { curve: -0.9, dip: 0.36 };
+        this.power = 0.78;
+        this.updateAimAndPreviewVisuals();
+        this.emitSnapshot();
+      }
     } else if (this.mode === 'gk_practice') {
       this.turnRole = 'gk';
       const scenario =
@@ -2768,7 +3256,8 @@ export class FreeKickEngine {
   }
 
   public selectPracticeSpot(spotId: string): void {
-    const found = PRACTICE_SPOTS.find((s) => s.id === spotId);
+    const allSpots = [...PRACTICE_SPOTS, ...CURVE_LAB_SPOTS];
+    const found = allSpots.find((s) => s.id === spotId);
     if (!found) return;
     this.mode = 'practice';
     this.practiceFocus =
@@ -2776,9 +3265,20 @@ export class FreeKickEngine {
         ? 'penalty'
         : spotId.startsWith('spot-corner')
         ? 'corner'
+        : spotId.startsWith('curve-')
+        ? 'curve_lab'
         : 'freekick';
+    if (this.practiceFocus !== 'curve_lab') {
+      this.customWind = null;
+    }
     this.turnRole = 'kick';
     this.setupScenario({ ...found, difficulty: this.difficulty }, true);
+    if (this.practiceFocus === 'curve_lab') {
+      this.spin = { curve: -0.9, dip: 0.36 };
+      this.power = 0.78;
+      this.updateAimAndPreviewVisuals();
+      this.emitSnapshot();
+    }
   }
 
   public setDifficulty(diff: Difficulty): void {
@@ -2787,6 +3287,7 @@ export class FreeKickEngine {
       this.emitSnapshot();
       return;
     }
+    const allSpots = [...PRACTICE_SPOTS, ...CURVE_LAB_SPOTS];
     const baseScenario =
       this.mode === 'impossible'
         ? IMPOSSIBLE_SCENARIO
@@ -2797,16 +3298,18 @@ export class FreeKickEngine {
           this.mode === 'vs_bot' ||
           this.mode === 'gk_practice'
         ? CHALLENGE_SCENARIOS[(this.round - 1) % CHALLENGE_SCENARIOS.length]
-        : PRACTICE_SPOTS.find((s) => s.id === this.scenario.id) ||
+        : allSpots.find((s) => s.id === this.scenario.id) ||
           this.getDefaultPracticeSpot(this.practiceFocus);
 
     if (this.phase === 'aiming') {
       this.setupScenario(baseScenario, false);
     } else {
+      const resolvedWind = this.getEffectiveWind(baseScenario.wind);
+      this.effectiveWind = { ...resolvedWind };
       this.scenario = {
         ...baseScenario,
         wallCount: this.getEffectiveWallCount(baseScenario.wallCount),
-        wind: this.getEffectiveWind(baseScenario.wind),
+        wind: resolvedWind,
       };
       this.emitSnapshot();
     }
@@ -3002,11 +3505,13 @@ export class FreeKickEngine {
   private moveAim360(dxScreenRight: number, dyUp: number): void {
     const vx = this.aim.x - this.ballStart.x;
     const vz = (this.aim.z ?? 0) - this.ballStart.z;
-    const radius = Math.max(6.5, Math.min(42, Math.hypot(vx, vz)));
+    const radius = Math.max(6.5, Math.min(48, Math.hypot(vx, vz)));
     // Increasing theta turns left (-X around PI); decreasing turns right (+X around PI)
     const ang = Math.atan2(vx, vz) - dxScreenRight / radius;
     this.aim.x = this.ballStart.x + Math.sin(ang) * radius;
-    this.aim.z = this.ballStart.z + Math.cos(ang) * radius;
+    const nextZ = this.ballStart.z + Math.cos(ang) * radius;
+    const isCorner = this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
+    this.aim.z = isCorner ? THREE.MathUtils.clamp(nextZ, -2.0, 18.0) : nextZ;
     this.aim.y = THREE.MathUtils.clamp(this.aim.y + dyUp, 0.2, 16.0);
   }
 
@@ -3092,18 +3597,49 @@ export class FreeKickEngine {
     spin: SpinInput,
   ): AimTarget {
     const kicker = KICKER_PROFILES[this.kickerId];
-    const zRatio = this.ballStart.z / Math.max(2, this.ballStart.z - targetZ);
-    let aimX = THREE.MathUtils.clamp(
-      this.ballStart.x + (targetX - this.ballStart.x) * zRatio,
-      -5.6,
-      5.6,
-    );
-    let aimY = 2.6;
+    const isCorner = this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
 
+    if (isCorner) {
+      let aimX = targetX;
+      let aimY = targetY + 0.35;
+      let aimZ = targetZ;
+      const comingFromLeft = this.ballStart.x < 0;
+
+      for (let iter = 0; iter < 8; iter++) {
+        const sim = computeLaunchState(
+          this.ballStart,
+          { x: aimX, y: aimY, z: aimZ },
+          power01,
+          spin,
+          kicker,
+        );
+        let crossedY = sim.pos.y;
+        let crossedZ = sim.pos.z;
+        const dt = 1 / 60;
+        for (let step = 0; step < 180; step++) {
+          stepBallPhysics(sim, this.scenario.wind, dt);
+          const reachedTargetX = comingFromLeft
+            ? sim.pos.x >= targetX
+            : sim.pos.x <= targetX;
+          if (reachedTargetX) {
+            crossedY = sim.pos.y;
+            crossedZ = sim.pos.z;
+            break;
+          }
+        }
+        aimZ = THREE.MathUtils.clamp(aimZ - (crossedZ - targetZ) * 1.05, 0.6, 15.0);
+        aimY = THREE.MathUtils.clamp(aimY - (crossedY - targetY) * 1.05, 0.4, 5.2);
+      }
+
+      return { x: aimX, y: aimY, z: aimZ };
+    }
+
+    let aimX = targetX;
+    let aimY = targetY + 0.35;
     for (let iter = 0; iter < 7; iter++) {
       const sim = computeLaunchState(
         this.ballStart,
-        { x: aimX, y: aimY },
+        { x: aimX, y: aimY, z: targetZ },
         power01,
         spin,
         kicker,
@@ -3119,11 +3655,11 @@ export class FreeKickEngine {
           break;
         }
       }
-      aimX = THREE.MathUtils.clamp(aimX - (crossedX - targetX) * 1.15, -5.6, 5.6);
-      aimY = THREE.MathUtils.clamp(aimY - (crossedY - targetY) * 1.05, 0.35, 3.8);
+      aimX = THREE.MathUtils.clamp(aimX - (crossedX - targetX) * 1.1, -9.0, 9.0);
+      aimY = THREE.MathUtils.clamp(aimY - (crossedY - targetY) * 1.05, 0.35, 4.5);
     }
 
-    return { x: aimX, y: aimY };
+    return { x: aimX, y: aimY, z: targetZ };
   }
 
   public shootCrossHeader(): void {
@@ -3140,6 +3676,31 @@ export class FreeKickEngine {
     this.teammateHeaderRequested = true;
     this.defendersDroppingBack = true;
 
+    const isCorner = this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
+    if (isCorner) {
+      // Position #9 attacking central/back 6-yard area for an unstoppable corner header
+      const headerTargetX = this.ballStart.x < 0 ? 0.65 : -0.65;
+      const headerTargetZ = 5.4;
+      this.teammateTargetPos.set(headerTargetX, 0, headerTargetZ);
+
+      const crossSpin: SpinInput = {
+        curve: this.ballStart.x < 0 ? -0.45 : 0.45,
+        dip: -0.18,
+      };
+      const crossPower = 0.68;
+
+      this.spin = crossSpin;
+      this.aim = this.findCrossAimForTeammate(
+        headerTargetX,
+        2.05,
+        headerTargetZ,
+        crossPower,
+        crossSpin,
+      );
+      this.executeKick(crossPower);
+      return;
+    }
+
     const openSide =
       this.scenario.wallCount > 0 ? -Math.sign(this.gkHomeX || 1) : 1;
     const crossSpin: SpinInput = {
@@ -3151,7 +3712,7 @@ export class FreeKickEngine {
     this.spin = crossSpin;
     this.aim = this.findCrossAimForTeammate(
       this.teammateTargetPos.x,
-      2.15,
+      2.1,
       this.teammateTargetPos.z,
       crossPower,
       crossSpin,
@@ -3254,11 +3815,22 @@ export class FreeKickEngine {
       this.setupScenario(IMPOSSIBLE_SCENARIO, false);
       soundEngine.playWhistle(false);
     } else {
+      const allSpots = [...PRACTICE_SPOTS, ...CURVE_LAB_SPOTS];
       const baseSpot =
-        PRACTICE_SPOTS.find((s) => s.id === this.scenario.id) ||
+        allSpots.find((s) => s.id === this.scenario.id) ||
         this.getDefaultPracticeSpot(this.practiceFocus);
+      const prevSpin = { ...this.spin };
+      const prevPower = this.power;
+      const prevAim = { ...this.aim };
       this.turnRole = 'kick';
       this.setupScenario(baseSpot, false);
+      if (this.practiceFocus === 'curve_lab') {
+        this.spin = prevSpin;
+        this.power = prevPower;
+        this.aim = prevAim;
+        this.updateAimAndPreviewVisuals();
+        this.emitSnapshot();
+      }
     }
   }
 
@@ -3286,11 +3858,22 @@ export class FreeKickEngine {
       );
       return;
     }
+    const allSpots = [...PRACTICE_SPOTS, ...CURVE_LAB_SPOTS];
     const baseSpot =
-      PRACTICE_SPOTS.find((s) => s.id === this.scenario.id) ||
+      allSpots.find((s) => s.id === this.scenario.id) ||
       this.getDefaultPracticeSpot(this.practiceFocus);
+    const prevSpin = { ...this.spin };
+    const prevPower = this.power;
+    const prevAim = { ...this.aim };
     this.turnRole = 'kick';
     this.setupScenario(baseSpot, false);
+    if (this.practiceFocus === 'curve_lab') {
+      this.spin = prevSpin;
+      this.power = prevPower;
+      this.aim = prevAim;
+      this.updateAimAndPreviewVisuals();
+      this.emitSnapshot();
+    }
   }
 
   public playReplay(): void {
@@ -3299,6 +3882,7 @@ export class FreeKickEngine {
     this.replayTimer = 0;
     this.trailPoints = [];
     this.trailGeo.setFromPoints([]);
+    this.updateBallCometVisuals();
     this.emitSnapshot();
   }
 
@@ -3509,32 +4093,14 @@ export class FreeKickEngine {
           reactionDelay: 0.22,
           reachRadius: 0.25,
         };
-      } else if (this.mode === 'impossible') {
-        const pred = predictBallAtZ(this.simState, 0.45, this.scenario.wind);
-        const targetX = THREE.MathUtils.clamp(
-          pred.reached ? pred.x : 0,
-          -GOAL_HALF_WIDTH + 0.12,
-          GOAL_HALF_WIDTH - 0.12,
-        );
-        const targetY = THREE.MathUtils.clamp(
-          pred.reached ? pred.y : 1.25,
-          0.3,
-          GOAL_HEIGHT - 0.12,
-        );
-        const dx = targetX - this.gkHomeX;
-        this.gkPlan = {
-          diveDir: Math.abs(dx) < 0.2 ? 0 : Math.sign(dx),
-          diveTargetX: targetX,
-          diveTargetY: targetY,
-          reactionDelay: 0,
-          reachRadius: 1.55,
-        };
       } else {
         const gkProfile = GK_PROFILES[this.getActiveGkId()];
+        const effectiveDiff: Difficulty =
+          this.mode === 'impossible' ? 'extreme' : this.difficulty;
         const basePlan = planGoalkeeperDive(
           this.simState,
           this.scenario.wind,
-          this.difficulty,
+          effectiveDiff,
           this.gkHomeX,
           kicker,
           gkProfile.diveSpeedMult,
@@ -3596,29 +4162,35 @@ export class FreeKickEngine {
     this.shotResolved = false;
     this.outcomeSettleTimer = 0;
     this.trailPoints = [this.ballStart.clone()];
-    if (this.trailMat) {
-      if (this.shotSkill === 'power_shot') {
-        this.trailMat.color.setHex(0xf43f5e);
-      } else if (this.shotSkill === 'bicycle_volley') {
-        this.trailMat.color.setHex(0xfbbf24);
-      } else if (this.shotSkill === 'rabona') {
-        this.trailMat.color.setHex(0xa855f7);
-      } else if (this.shotSkill === 'chip_panenka') {
-        this.trailMat.color.setHex(0x38bdf8);
-      } else if (this.shotSkill === 'trivela') {
-        this.trailMat.color.setHex(0xe879f9);
-      } else if (this.shotSkill === 'knuckle') {
-        this.trailMat.color.setHex(0xf97316);
-      } else if (this.shotSkill === 'dip_topspin') {
-        this.trailMat.color.setHex(0x34d399);
-      } else {
-        const hasHeavySpin =
-          this.shotSkill === 'curler' || Math.abs(this.spin.curve) > 0.45;
-        this.trailMat.color.setHex(
-          hasHeavySpin ? 0x38bdf8 : this.power > 0.82 ? 0xf97316 : 0xfbbf24,
-        );
-      }
+    let resolvedTrailHex = 0xfbbf24;
+    if (this.shotSkill === 'power_shot') {
+      resolvedTrailHex = 0xf43f5e;
+    } else if (this.shotSkill === 'bicycle_volley') {
+      resolvedTrailHex = 0xfbbf24;
+    } else if (this.shotSkill === 'rabona') {
+      resolvedTrailHex = 0xa855f7;
+    } else if (this.shotSkill === 'chip_panenka') {
+      resolvedTrailHex = 0x38bdf8;
+    } else if (this.shotSkill === 'trivela') {
+      resolvedTrailHex = 0xe879f9;
+    } else if (this.shotSkill === 'knuckle') {
+      resolvedTrailHex = 0xf97316;
+    } else if (this.shotSkill === 'dip_topspin') {
+      resolvedTrailHex = 0x34d399;
+    } else {
+      const hasHeavySpin =
+        this.shotSkill === 'curler' || Math.abs(this.spin.curve) > 0.45;
+      resolvedTrailHex = hasHeavySpin
+        ? 0x38bdf8
+        : this.power > 0.82
+        ? 0xf97316
+        : 0xfbbf24;
     }
+    this.trailHexColor = resolvedTrailHex;
+    if (this.trailMat) {
+      this.trailMat.color.setHex(resolvedTrailHex);
+    }
+    this.updateBallCometVisuals();
 
     if (this.wallPlayers.length > 0 && this.power > 0.4) {
       this.wallHasJumped = true;
@@ -3805,8 +4377,8 @@ export class FreeKickEngine {
       this.triggerCrowdReaction('miss', 2.4);
       if (type === 'saved') {
         if (this.mode === 'impossible') {
-          title = 'KHÔNG THỂ GHI BÀN!';
-          subtitle = `Siêu Thủ Môn ${gkProfile.shortName} đã bay người cản phá tuyệt đối! Khung thành 1 Tỷ Xu bất khả xâm phạm.`;
+          title = `${gkProfile.shortName.toUpperCase()} CẢN PHÁ!`;
+          subtitle = `Thủ môn ${gkProfile.shortName} bay người cứu thua! Hãy sút xoáy góc hiểm hoặc sút căng vào lưới để ăn giải 1 Tỷ Xu.`;
         } else {
           title = `${gkProfile.shortName.toUpperCase()} CẢN PHÁ!`;
           subtitle = `Pha bay người cứu thua xuất thần của ${gkProfile.shortName}.`;
@@ -3836,6 +4408,16 @@ export class FreeKickEngine {
       subtitle += ' Bóng xoáy hết biên ngang — được hưởng PHẠT GÓC!';
     }
 
+    const curveBendMeters = computeCurveDeviationMeters(
+      this.ballStart,
+      this.aim,
+      this.power,
+      this.spin,
+      this.scenario.wind,
+      kicker,
+      this.shotSkill,
+    );
+
     this.lastOutcome = {
       type,
       title,
@@ -3843,6 +4425,7 @@ export class FreeKickEngine {
       points,
       speedKmh,
       spinRpm,
+      curveBendMeters,
       hitWoodwork: this.hitWoodworkInShot,
       isHeader: this.teammateHeaderScored,
       isRebound: this.reboundScoredShot,
@@ -3875,6 +4458,20 @@ export class FreeKickEngine {
     const matchPossession: 'home' | 'away' | 'loose' = owner
       ? owner.team
       : 'loose';
+
+    const kickerProfile = KICKER_PROFILES[this.getActiveKickerId()];
+    const previewBendMeters =
+      this.mode === 'match'
+        ? 0
+        : computeCurveDeviationMeters(
+            this.ballStart,
+            this.aim,
+            this.power,
+            this.spin,
+            this.scenario.wind,
+            kickerProfile,
+            this.shotSkill,
+          );
 
     this.onStateChange({
       mode: this.mode,
@@ -3911,11 +4508,18 @@ export class FreeKickEngine {
       matchShotsAway: this.matchShotsAway,
       matchGoalSeq: this.matchGoalSeq,
       matchGoalTier: this.matchGoalTier,
+      matchGoalScorerName:
+        this.matchGoalScorerIdx !== null && this.matchPlayers[this.matchGoalScorerIdx]
+          ? this.matchPlayers[this.matchGoalScorerIdx].playerName
+          : null,
+      matchGoalTeam: this.matchGoalTeam,
       power: this.power,
       spin: { ...this.spin },
       shotSkill: this.shotSkill,
       weather: this.weather,
       aim: { ...this.aim },
+      previewBendMeters,
+      customWindActive: Boolean(this.customWind),
       lastOutcome: this.lastOutcome,
       history: [...this.history],
       muted: soundEngine.muted,
@@ -3937,9 +4541,20 @@ export class FreeKickEngine {
       if (this.disposed) return;
       const w = Math.max(1, this.container.clientWidth);
       const h = Math.max(1, this.container.clientHeight);
+      const pr = this.isSoftwareGl
+        ? 1
+        : Math.min(window.devicePixelRatio || 1, 2);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
+      this.renderer.setPixelRatio(pr);
       this.renderer.setSize(w, h);
+      if (this.composer) {
+        this.composer.setPixelRatio(pr);
+        this.composer.setSize(w, h);
+      }
+      if (this.bloomPass) {
+        this.bloomPass.setSize(Math.floor(w * pr), Math.floor(h * pr));
+      }
     };
 
     const handleContextLost = (e: Event) => {
@@ -3957,12 +4572,14 @@ export class FreeKickEngine {
       _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
       _raycaster.setFromCamera(_ndc, this.camera);
 
-      // Prefer goal plane only when pointing at/near goal front from in front of goal line
+      const isCorner = this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
+
+      // Prefer goal plane when pointing at/near goal front
       if (
         _raycaster.ray.intersectPlane(_goalPlane, _v1) &&
-        Math.abs(_v1.x) <= 13.5 &&
+        Math.abs(_v1.x) <= (isCorner ? 7.8 : 13.5) &&
         _v1.y >= 0.15 &&
-        _v1.y <= 9.5 &&
+        _v1.y <= (isCorner ? 5.2 : 9.5) &&
         this.camera.position.z > 1
       ) {
         this.aim.x = _v1.x;
@@ -3972,13 +4589,24 @@ export class FreeKickEngine {
         return;
       }
 
-      // Full 360-degree pitch/sphere aiming around the ball
+      // Full 360-degree pitch/sphere aiming around the ball (direct box targeting on corners!)
       if (_raycaster.ray.intersectPlane(_pitchPlane, _v1)) {
+        if (isCorner && _v1.z >= 0.3 && _v1.z <= 20 && Math.abs(_v1.x) <= 18) {
+          this.aim.x = _v1.x;
+          this.aim.z = _v1.z;
+          this.aim.y = THREE.MathUtils.clamp(
+            1.75 + Math.max(-0.25, _ndc.y) * 2.6,
+            0.65,
+            3.8,
+          );
+          this.updateAimAndPreviewVisuals();
+          return;
+        }
         const dx = _v1.x - this.ballStart.x;
         const dz = _v1.z - this.ballStart.z;
         const rawDist = Math.hypot(dx, dz);
         if (rawDist > 0.4) {
-          const clampedDist = THREE.MathUtils.clamp(rawDist, 4.0, 42.0);
+          const clampedDist = THREE.MathUtils.clamp(rawDist, 4.0, 46.0);
           this.aim.x = this.ballStart.x + (dx / rawDist) * clampedDist;
           this.aim.z = this.ballStart.z + (dz / rawDist) * clampedDist;
           this.aim.y = THREE.MathUtils.clamp(
@@ -4135,9 +4763,9 @@ export class FreeKickEngine {
         if (dy > 38) {
           // Swipe upward launches immediate shot along current 360° direction!
           const swipeSpeed = Math.hypot(dx, dy) / dtMs;
-          const power = THREE.MathUtils.clamp(0.32 + swipeSpeed * 0.45, 0.35, 0.98);
+          const power = THREE.MathUtils.clamp(0.32 + swipeSpeed * 0.45, 0.35, 0.96);
           const rect = dom.getBoundingClientRect();
-          this.moveAim360((dx / rect.width) * 9.0, (dy / rect.height) * 2.4 - 0.8);
+          this.moveAim360((dx / rect.width) * 5.2, (dy / rect.height) * 1.9 - 0.65);
           this.executeKick(power);
           return;
         }
@@ -4237,6 +4865,13 @@ export class FreeKickEngine {
           const order: CameraPreset[] = ['kicker', 'broadcast', 'behind_goal'];
           const next = order[(order.indexOf(this.cameraPreset) + 1) % order.length];
           this.setCameraPreset(next);
+          return;
+        }
+        if (this.phase === 'match_goal' && !e.repeat) {
+          if (mapped.includes('Space') || mapped.includes('Enter')) {
+            e.preventDefault();
+            this.skipMatchGoalCelebration();
+          }
           return;
         }
         if (this.phase === 'playing' && !e.repeat) {
@@ -4433,7 +5068,11 @@ export class FreeKickEngine {
       this.elapsedTotal += dt;
 
       this.update(dt);
-      this.renderer.render(this.scene, this.camera);
+      if (this.composer && !this.isSoftwareGl) {
+        this.composer.render();
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
 
       if (this.isSoftwareGl) {
         this.afterDraw(tick);
@@ -4523,6 +5162,45 @@ export class FreeKickEngine {
     }
   }
 
+  public skipMatchGoalCelebration(): void {
+    if (this.mode !== 'match' || this.phase !== 'match_goal') return;
+    this.finishMatchGoalCelebration();
+  }
+
+  private finishMatchGoalCelebration(): void {
+    resetMatchPositions(this.matchPlayers, this.matchKickoffTeam);
+    const homeKick =
+      this.matchPlayers.find(
+        (p) => p.team === 'home' && p.role === 'fwd' && p.isStar,
+      ) ??
+      this.matchPlayers.find((p) => p.team === 'home' && p.role !== 'gk');
+    const awayKick =
+      this.matchPlayers.find(
+        (p) => p.team === 'away' && p.role === 'fwd' && p.isStar,
+      ) ??
+      this.matchPlayers.find((p) => p.team === 'away' && p.role !== 'gk');
+    this.matchBallOwnerIdx =
+      this.matchKickoffTeam === 'home'
+        ? homeKick?.index ?? 1
+        : awayKick?.index ?? 6;
+    this.matchActiveIdx = homeKick?.index ?? 1;
+    this.matchBallSim = null;
+    this.matchKickCooldown = 0.25;
+    this.matchStealGraceTimer = 0.5;
+    this.matchPassTargetIdx = null;
+    this.matchPassHoldTimer = 0;
+    this.matchAutoSwitchCooldown = 0;
+    this.matchGoalTimer = 0;
+    this.matchGoalTeam = null;
+    this.matchGoalScorerIdx = null;
+    this.matchGoalNetHit = false;
+    this.matchEventText = null;
+    this.phase = 'playing';
+    this.ballObj.mesh.position.set(0, BALL_RADIUS, PITCH_HALF_L);
+    this.ballObj.shadowMesh.position.set(0, 0.018, PITCH_HALF_L);
+    this.emitSnapshot();
+  }
+
   private updateMatch(dt: number): void {
     this.stadium.net.update(dt);
     this.stadium.netSouth.update(dt);
@@ -4544,50 +5222,185 @@ export class FreeKickEngine {
 
     if (this.phase === 'match_goal') {
       if (this.matchBallSim) {
-        stepBallPhysics(this.matchBallSim, { x: 0, z: 0 }, dt);
-        this.ballObj.mesh.position.copy(this.matchBallSim.pos);
+        const sim = this.matchBallSim;
+        stepBallPhysics(sim, { x: 0, z: 0 }, dt);
+
+        // Keep ball inside goal net & slam/billow back net on impact
+        if (this.matchGoalTeam === 'home') {
+          if (sim.pos.z <= -GOAL_DEPTH + BALL_RADIUS) {
+            if (!this.matchGoalNetHit || sim.vel.z < -2.2) {
+              this.matchGoalNetHit = true;
+              this.stadium.net.triggerRipple(
+                sim.pos.x,
+                sim.pos.y,
+                THREE.MathUtils.clamp(Math.abs(sim.vel.z) * 0.065, 0.85, 1.42),
+              );
+              soundEngine.playNetRipple();
+            }
+            sim.pos.z = -GOAL_DEPTH + BALL_RADIUS;
+            sim.vel.z = Math.abs(sim.vel.z) * 0.16;
+            sim.vel.x *= 0.42;
+            sim.vel.y *= 0.48;
+          }
+          if (Math.abs(sim.pos.x) >= GOAL_HALF_WIDTH - BALL_RADIUS) {
+            sim.pos.x = Math.sign(sim.pos.x) * (GOAL_HALF_WIDTH - BALL_RADIUS);
+            sim.vel.x *= -0.35;
+          }
+          if (sim.pos.y >= GOAL_HEIGHT - BALL_RADIUS && sim.pos.z < 0) {
+            sim.pos.y = GOAL_HEIGHT - BALL_RADIUS;
+            sim.vel.y *= -0.35;
+          }
+        } else if (this.matchGoalTeam === 'away') {
+          if (sim.pos.z >= PITCH_LENGTH + GOAL_DEPTH - BALL_RADIUS) {
+            if (!this.matchGoalNetHit || sim.vel.z > 2.2) {
+              this.matchGoalNetHit = true;
+              this.stadium.netSouth.triggerRipple(
+                -sim.pos.x,
+                sim.pos.y,
+                THREE.MathUtils.clamp(Math.abs(sim.vel.z) * 0.065, 0.85, 1.42),
+              );
+              soundEngine.playNetRipple();
+            }
+            sim.pos.z = PITCH_LENGTH + GOAL_DEPTH - BALL_RADIUS;
+            sim.vel.z = -Math.abs(sim.vel.z) * 0.16;
+            sim.vel.x *= 0.42;
+            sim.vel.y *= 0.48;
+          }
+          if (Math.abs(sim.pos.x) >= GOAL_HALF_WIDTH - BALL_RADIUS) {
+            sim.pos.x = Math.sign(sim.pos.x) * (GOAL_HALF_WIDTH - BALL_RADIUS);
+            sim.vel.x *= -0.35;
+          }
+          if (sim.pos.y >= GOAL_HEIGHT - BALL_RADIUS && sim.pos.z > PITCH_LENGTH) {
+            sim.pos.y = GOAL_HEIGHT - BALL_RADIUS;
+            sim.vel.y *= -0.35;
+          }
+        }
+
+        const omegaLen = sim.omega.length();
+        if (omegaLen > 0.01) {
+          _v2.copy(sim.omega).normalize();
+          _q1.setFromAxisAngle(_v2, omegaLen * dt);
+          this.ballObj.mesh.quaternion.premultiply(_q1);
+        }
+        this.ballObj.mesh.position.copy(sim.pos);
         this.ballObj.shadowMesh.position.set(
-          this.matchBallSim.pos.x,
+          sim.pos.x,
           0.018,
-          this.matchBallSim.pos.z,
+          sim.pos.z,
         );
       }
-      // Animate Home scorer celebrating!
-      const fallbackHomeScorer = this.matchPlayers.find(
-        (p) => p.team === 'home' && p.role !== 'gk',
-      );
-      const scorer = this.matchPlayers[this.matchActiveIdx] ?? fallbackHomeScorer;
-      if (scorer && this.matchGoalTier) {
-        const hop = Math.abs(Math.sin(this.elapsedTotal * 7.5)) * 0.24;
-        scorer.mesh.bodyPivot.position.y = 0.92 + hop;
-        scorer.mesh.leftArm.rotation.set(-0.35, 0, -2.35);
-        scorer.mesh.rightArm.rotation.set(-0.35, 0, 2.35);
-        scorer.mesh.leftLeg.rotation.set(-hop * 0.8, 0, 0.12);
-        scorer.mesh.rightLeg.rotation.set(-hop * 0.8, 0, -0.12);
+
+      // Animate Goal Scorer Celebration (sprint -> knee slide -> fist-pump jump) + Teammates joining
+      const scorer =
+        (this.matchGoalScorerIdx !== null
+          ? this.matchPlayers[this.matchGoalScorerIdx]
+          : undefined) ??
+        this.matchPlayers.find(
+          (p) => p.team === (this.matchGoalTeam ?? 'home') && p.role !== 'gk',
+        );
+      const goalElapsed = Math.max(0, this.matchGoalCelebrateDuration - this.matchGoalTimer);
+
+      if (scorer) {
+        const cornerTargetX = scorer.pos.x >= 0 ? 11.5 : -11.5;
+        const cornerTargetZ =
+          this.matchGoalTeam === 'away' ? PITCH_LENGTH - 8.5 : 8.5;
+        const dx = cornerTargetX - scorer.pos.x;
+        const dz = cornerTargetZ - scorer.pos.z;
+        const distCorner = Math.hypot(dx, dz);
+
+        if (goalElapsed < 0.55) {
+          // Sprint out with airplane arms raised
+          const runSp = distCorner > 0.6 ? 6.4 : 0;
+          if (runSp > 0) {
+            scorer.facingYaw = Math.atan2(dx, dz);
+            scorer.pos.x += (dx / distCorner) * runSp * dt;
+            scorer.pos.z += (dz / distCorner) * runSp * dt;
+          }
+          scorer.vel.set(runSp, 0, 0);
+          scorer.stridePhase += 14 * dt;
+          const sw = Math.sin(scorer.stridePhase) * 0.65;
+          scorer.mesh.group.position.copy(scorer.pos);
+          scorer.mesh.group.rotation.y = scorer.facingYaw;
+          scorer.mesh.bodyPivot.position.y = 0.92 + Math.abs(Math.cos(scorer.stridePhase)) * 0.08;
+          scorer.mesh.bodyPivot.rotation.set(0.22, 0, 0);
+          scorer.mesh.leftArm.rotation.set(-0.25, 0, -2.25);
+          scorer.mesh.rightArm.rotation.set(-0.25, 0, 2.25);
+          scorer.mesh.leftLeg.rotation.set(sw, 0, 0.08);
+          scorer.mesh.rightLeg.rotation.set(-sw, 0, -0.08);
+          if (scorer.mesh.leftKneePivot) scorer.mesh.leftKneePivot.rotation.set(0.35, 0, 0);
+          if (scorer.mesh.rightKneePivot) scorer.mesh.rightKneePivot.rotation.set(0.35, 0, 0);
+        } else if (goalElapsed < 2.05) {
+          // Iconic Knee Slide across the turf!
+          const slideDecay = Math.max(0, 1 - (goalElapsed - 0.55) / 1.5);
+          const slideSpeed = 5.4 * slideDecay;
+          if (slideSpeed > 0.35 && distCorner > 0.4) {
+            scorer.pos.x += Math.sin(scorer.facingYaw) * slideSpeed * dt;
+            scorer.pos.z += Math.cos(scorer.facingYaw) * slideSpeed * dt;
+            if (Math.random() < 0.38) {
+              this.spawnTurfBurst(scorer.pos.x, 0.04, scorer.pos.z, 0.55);
+            }
+          }
+          scorer.mesh.group.position.copy(scorer.pos);
+          scorer.mesh.group.rotation.y = scorer.facingYaw;
+          scorer.mesh.bodyPivot.position.y = 0.54;
+          scorer.mesh.bodyPivot.rotation.set(-0.34, 0, 0);
+          scorer.mesh.leftArm.rotation.set(-0.45, 0, -1.85);
+          scorer.mesh.rightArm.rotation.set(-0.45, 0, 1.85);
+          scorer.mesh.leftLeg.rotation.set(-0.32, 0, 0.12);
+          scorer.mesh.rightLeg.rotation.set(-0.32, 0, -0.12);
+          if (scorer.mesh.leftKneePivot) scorer.mesh.leftKneePivot.rotation.set(1.68, 0, 0);
+          if (scorer.mesh.rightKneePivot) scorer.mesh.rightKneePivot.rotation.set(1.68, 0, 0);
+        } else {
+          // Stand up & Fist-Pump / Siu Jump Celebration
+          const hop = Math.abs(Math.sin(goalElapsed * 7.2)) * 0.28;
+          scorer.mesh.group.position.copy(scorer.pos);
+          scorer.mesh.group.rotation.y = scorer.facingYaw;
+          scorer.mesh.bodyPivot.position.y = 0.92 + hop;
+          scorer.mesh.bodyPivot.rotation.set(0.08, 0, 0);
+          scorer.mesh.leftArm.rotation.set(-0.35, 0, -2.42);
+          scorer.mesh.rightArm.rotation.set(-0.35, 0, 2.42);
+          scorer.mesh.leftLeg.rotation.set(-hop * 0.7, 0, 0.12);
+          scorer.mesh.rightLeg.rotation.set(-hop * 0.7, 0, -0.12);
+          if (scorer.mesh.leftKneePivot) scorer.mesh.leftKneePivot.rotation.set(hop * 0.9, 0, 0);
+          if (scorer.mesh.rightKneePivot) scorer.mesh.rightKneePivot.rotation.set(hop * 0.9, 0, 0);
+        }
+
+        // Nearby teammates jog toward the scorer raising arms in celebration
+        for (const mate of this.matchPlayers) {
+          if (
+            mate.index === scorer.index ||
+            mate.team !== scorer.team ||
+            mate.role === 'gk'
+          ) {
+            continue;
+          }
+          const mdx = scorer.pos.x - mate.pos.x;
+          const mdz = scorer.pos.z - mate.pos.z;
+          const mdist = Math.hypot(mdx, mdz);
+          if (mdist > 2.4 && mdist < 32) {
+            const jogSp = 4.6;
+            mate.facingYaw = Math.atan2(mdx, mdz);
+            mate.pos.x += (mdx / mdist) * jogSp * dt;
+            mate.pos.z += (mdz / mdist) * jogSp * dt;
+            mate.stridePhase += 11 * dt;
+            const sw = Math.sin(mate.stridePhase) * 0.45;
+            mate.mesh.group.position.copy(mate.pos);
+            mate.mesh.group.rotation.y = mate.facingYaw;
+            mate.mesh.bodyPivot.position.y = 0.92 + Math.abs(Math.cos(mate.stridePhase)) * 0.05;
+            mate.mesh.leftLeg.rotation.set(sw, 0, 0.06);
+            mate.mesh.rightLeg.rotation.set(-sw, 0, -0.06);
+            mate.mesh.leftArm.rotation.set(-0.3, 0, -2.1);
+            mate.mesh.rightArm.rotation.set(-0.3, 0, 2.1);
+          } else {
+            mate.mesh.leftArm.rotation.set(-0.35, 0, -2.3);
+            mate.mesh.rightArm.rotation.set(-0.35, 0, 2.3);
+          }
+        }
       }
+
       this.matchGoalTimer -= dt;
       if (this.matchGoalTimer <= 0) {
-        resetMatchPositions(this.matchPlayers, this.matchKickoffTeam);
-        const homeKick =
-          this.matchPlayers.find((p) => p.team === 'home' && p.role === 'fwd' && p.isStar) ??
-          this.matchPlayers.find((p) => p.team === 'home' && p.role !== 'gk');
-        const awayKick =
-          this.matchPlayers.find((p) => p.team === 'away' && p.role === 'fwd' && p.isStar) ??
-          this.matchPlayers.find((p) => p.team === 'away' && p.role !== 'gk');
-        this.matchBallOwnerIdx =
-          this.matchKickoffTeam === 'home'
-            ? homeKick?.index ?? 1
-            : awayKick?.index ?? 6;
-        this.matchActiveIdx = homeKick?.index ?? 1;
-        this.matchBallSim = null;
-        this.matchKickCooldown = 0.25;
-        this.matchStealGraceTimer = 0.5;
-        this.matchPassTargetIdx = null;
-        this.matchPassHoldTimer = 0;
-        this.matchAutoSwitchCooldown = 0;
-        this.matchEventText = null;
-        this.phase = 'playing';
-        this.emitSnapshot();
+        this.finishMatchGoalCelebration();
       }
       return;
     }
@@ -4653,6 +5466,7 @@ export class FreeKickEngine {
       }
       this.trailPoints = [];
       this.trailGeo.setFromPoints([]);
+      this.updateBallCometVisuals();
     } else if (this.matchBallSim) {
       const sim = this.matchBallSim;
       const isAdminMatchShot = Boolean(this.isAdmin && this.matchAdminShotTarget);
@@ -4708,20 +5522,30 @@ export class FreeKickEngine {
             sim.pos.y > GOAL_HEIGHT - 0.72;
           this.matchGoalSeq += 1;
           this.matchGoalTier = isSuperGoal ? 'super' : 'normal';
-          this.stadium.net.triggerRipple(sim.pos.x, sim.pos.y, 0.72);
+          this.matchGoalTeam = 'home';
+          const candidateHomeScorer =
+            this.matchLastShooterIdx !== null &&
+            this.matchPlayers[this.matchLastShooterIdx]?.team === 'home'
+              ? this.matchPlayers[this.matchLastShooterIdx]
+              : this.matchPlayers[this.matchActiveIdx]?.team === 'home'
+              ? this.matchPlayers[this.matchActiveIdx]
+              : this.matchPlayers.find((p) => p.team === 'home' && p.role !== 'gk');
+          this.matchGoalScorerIdx = candidateHomeScorer?.index ?? this.matchActiveIdx;
+          this.matchGoalNetHit = false;
+          this.stadium.net.triggerRipple(sim.pos.x, sim.pos.y, 1.08);
           soundEngine.playWhistle(true);
           soundEngine.playCrowdCheer();
           soundEngine.playNetRipple();
           soundEngine.playGoalCelebration(isSuperGoal);
-          this.triggerCrowdReaction('goal', 3.0);
+          this.triggerCrowdReaction('goal', 3.4);
           this.triggerConfetti(sim.pos.x, sim.pos.y, isSuperGoal, 0);
           this.phase = 'match_goal';
-          this.matchGoalTimer = 2.2;
+          this.matchGoalTimer = this.matchGoalCelebrateDuration;
           this.matchKickoffTeam = 'away';
           this.matchEventText = isSuperGoal
             ? `SIÊU PHẨM ${TEAM_PROFILES[this.homeTeamId].shortCode}! +100 XU`
             : `VÀO! ${TEAM_PROFILES[this.homeTeamId].shortCode} GHI BÀN! +100 XU`;
-          this.matchEventTimer = 2.2;
+          this.matchEventTimer = 3.4;
           this.emitSnapshot();
           return;
         }
@@ -4760,16 +5584,26 @@ export class FreeKickEngine {
           } else {
             this.matchAdminShotTarget = null;
             this.botGoals += 1;
-            this.stadium.netSouth.triggerRipple(-sim.pos.x, sim.pos.y, 0.72);
+            this.matchGoalTeam = 'away';
+            this.matchGoalTier = 'normal';
+            const candidateAwayScorer =
+              this.matchLastShooterIdx !== null &&
+              this.matchPlayers[this.matchLastShooterIdx]?.team === 'away'
+                ? this.matchPlayers[this.matchLastShooterIdx]
+                : this.matchPlayers.find((p) => p.team === 'away' && p.role !== 'gk');
+            this.matchGoalScorerIdx = candidateAwayScorer?.index ?? null;
+            this.matchGoalNetHit = false;
+            this.stadium.netSouth.triggerRipple(-sim.pos.x, sim.pos.y, 1.08);
             soundEngine.playWhistle(true);
             soundEngine.playCrowdGasp();
-            this.triggerCrowdReaction('miss', 2.4);
+            this.triggerCrowdReaction('miss', 2.8);
             soundEngine.playNetRipple();
+            this.triggerConfetti(sim.pos.x, sim.pos.y, false, PITCH_LENGTH);
             this.phase = 'match_goal';
-            this.matchGoalTimer = 2.2;
+            this.matchGoalTimer = this.matchGoalCelebrateDuration;
             this.matchKickoffTeam = 'home';
             this.matchEventText = `${TEAM_PROFILES[this.awayTeamId].shortCode} GHI BÀN!`;
-            this.matchEventTimer = 2.2;
+            this.matchEventTimer = 3.2;
             this.emitSnapshot();
             return;
           }
@@ -4781,6 +5615,9 @@ export class FreeKickEngine {
       this.trailPoints.push(sim.pos.clone());
       if (this.trailPoints.length > 40) this.trailPoints.shift();
       this.trailGeo.setFromPoints(this.trailPoints);
+      this.trailHexColor = this.shotSkill === 'power_shot' ? 0xf43f5e : 0x38bdf8;
+      if (this.trailMat) this.trailMat.color.setHex(this.trailHexColor);
+      this.updateBallCometVisuals();
 
       // Out of bounds: Goal Kick OR Live Corner Kick if deflected/parried!
       if (
@@ -5145,6 +5982,28 @@ export class FreeKickEngine {
         p.pos.x = THREE.MathUtils.clamp(p.pos.x + p.vel.x * dt, -(PITCH_HALF_W - 1.5), PITCH_HALF_W - 1.5);
         p.pos.z = THREE.MathUtils.clamp(p.pos.z + p.vel.z * dt, 1.5, PITCH_LENGTH - 1.5);
         animateMatchPlayer(p, dt, this.runningAuraId, this.elapsedTotal);
+        if (this.runningAuraId !== 'none') {
+          const speedNow = Math.hypot(p.vel.x, p.vel.z);
+          if (speedNow > 3.2 || p.sprintBurstTimer > 0) {
+            this.sprintSpawnAccum += dt * (sprint > 1.05 ? 30 : 14);
+            const auraHex =
+              this.runningAuraId === 'rainbow_prism'
+                ? _sprintCol.setHSL((this.elapsedTotal * 1.4) % 1, 0.95, 0.62).getHex()
+                : parseInt(RUNNING_AURAS[this.runningAuraId].hexColor.replace('#', ''), 16);
+            while (this.sprintSpawnAccum >= 1) {
+              this.sprintSpawnAccum -= 1;
+              this.spawnSprintParticle(
+                p.pos.x + (Math.random() - 0.5) * 0.42,
+                0.08 + Math.random() * 0.14,
+                p.pos.z + (Math.random() - 0.5) * 0.42,
+                -p.vel.x * 0.16 + (Math.random() - 0.5) * 1.3,
+                0.75 + Math.random() * 1.25,
+                -p.vel.z * 0.16 + (Math.random() - 0.5) * 1.3,
+                auraHex,
+              );
+            }
+          }
+        }
         continue;
       }
 
@@ -5422,6 +6281,14 @@ export class FreeKickEngine {
     this.stadium.updateGrass(this.elapsedTotal * grassWindScale);
     this.updateWeather(dt);
 
+    if (this.curveTargetsGroup && this.curveTargetsGroup.visible) {
+      const pulse = 1 + Math.sin(this.elapsedTotal * 4.2) * 0.08;
+      this.curveTargetRingL.scale.setScalar(pulse);
+      this.curveTargetRingR.scale.setScalar(pulse);
+      this.curveTargetRingL.rotation.z = this.elapsedTotal * 1.2;
+      this.curveTargetRingR.rotation.z = -this.elapsedTotal * 1.2;
+    }
+
     if (this.mode === 'match') {
       this.updateMatch(dt);
       return;
@@ -5468,11 +6335,11 @@ export class FreeKickEngine {
           changed = true;
         }
         if (this.keys['KeyQ']) {
-          this.spin.curve = THREE.MathUtils.clamp(this.spin.curve - 1.2 * dt, -1, 1);
+          this.spin.curve = THREE.MathUtils.clamp(this.spin.curve - 0.72 * dt, -1, 1);
           changed = true;
         }
         if (this.keys['KeyE']) {
-          this.spin.curve = THREE.MathUtils.clamp(this.spin.curve + 1.2 * dt, -1, 1);
+          this.spin.curve = THREE.MathUtils.clamp(this.spin.curve + 0.72 * dt, -1, 1);
           changed = true;
         }
         if (changed) {
@@ -5601,7 +6468,41 @@ export class FreeKickEngine {
         this.teammatePlayer.rightLeg.rotation.x = -stride;
       }
 
+      if (this.kickerPlayer && this.runningAuraId !== 'none') {
+        this.kickerPlayer.setAuraState?.(
+          1.15,
+          true,
+          false,
+          this.runningAuraId,
+          this.elapsedTotal,
+        );
+        this.sprintSpawnAccum += dt * 32;
+        const auraHex =
+          this.runningAuraId === 'rainbow_prism'
+            ? _sprintCol.setHSL((this.elapsedTotal * 1.5) % 1, 0.95, 0.62).getHex()
+            : parseInt(RUNNING_AURAS[this.runningAuraId].hexColor.replace('#', ''), 16);
+        while (this.sprintSpawnAccum >= 1) {
+          this.sprintSpawnAccum -= 1;
+          this.spawnSprintParticle(
+            this.kickerCurrentPos.x + (Math.random() - 0.5) * 0.36,
+            0.08 + Math.random() * 0.16,
+            this.kickerCurrentPos.z + (Math.random() - 0.5) * 0.36,
+            (Math.random() - 0.5) * 1.4,
+            0.7 + Math.random() * 1.2,
+            1.4 + Math.random() * 0.9,
+            auraHex,
+          );
+        }
+      }
+
       if (p >= 1) {
+        this.kickerPlayer?.setAuraState?.(
+          0,
+          false,
+          false,
+          this.runningAuraId,
+          this.elapsedTotal,
+        );
         this.launchBallFromRunup();
       }
     }
@@ -5775,6 +6676,8 @@ export class FreeKickEngine {
       }
 
       // Goalpost / Crossbar Collision + Woodwork Đá Bồi Rebound!
+      const isCornerShot =
+        this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
       if (!isAdminKick && resolveWoodworkCollision(sim)) {
         this.hitWoodworkInShot = true;
         this.impactShakeTimer = 0.26;
@@ -5784,9 +6687,12 @@ export class FreeKickEngine {
           this.reboundState === 'none' &&
           !this.shotResolved &&
           this.mode !== 'impossible' &&
-          sim.vel.z > 0.35 &&
-          sim.pos.z > 0.25
+          sim.pos.z >= 0.05 &&
+          (sim.vel.z > 0.25 || (isCornerShot && Math.hypot(sim.vel.x, sim.vel.z) > 1.0))
         ) {
+          if (sim.vel.z < 2.2) {
+            sim.vel.z = 2.2;
+          }
           this.reboundState = 'chasing';
           this.teammateHasJumped = false;
           soundEngine.playCrowdGasp();
@@ -5808,8 +6714,12 @@ export class FreeKickEngine {
           sim.pos.y - headY,
           sim.pos.z - this.teammateCurrentPos.z,
         );
-        const interceptRadius = this.teammateHeaderRequested ? 0.98 : 0.65;
-        if (headDist < interceptRadius && sim.pos.z > 2.2) {
+        const interceptRadius = this.teammateHeaderRequested
+          ? 1.32
+          : isCornerShot
+          ? 1.08
+          : 0.72;
+        if (headDist < interceptRadius && sim.pos.z > 1.5) {
           this.teammateHasHeaded = true;
           this.teammateHeaderScored = true;
 
@@ -5852,9 +6762,8 @@ export class FreeKickEngine {
         this.gkSaveCooldown <= 0 &&
         !this.shotResolved
       ) {
-        const isInvincibleDef =
-          this.mode === 'impossible' || (this.turnRole === 'gk' && this.isAdmin);
-        // Impossible Mode & Admin Invincible Auto-GK ironclad pre-line superhuman save
+        const isInvincibleDef = this.turnRole === 'gk' && this.isAdmin;
+        // Admin Invincible Auto-GK ironclad pre-line superhuman save
         if (
           isInvincibleDef &&
           sim.pos.z <= 0.78 &&
@@ -5877,6 +6786,7 @@ export class FreeKickEngine {
           sim.vel.z = Math.abs(sim.vel.z) * 0.48 + 4.2;
           sim.vel.x += (sim.pos.x >= 0 ? 1 : -1) * 3.6;
           sim.vel.y = Math.max(2.2, sim.vel.y * 0.45 + 2.2);
+          this.triggerGkSaveImpact(sim.pos.x, sim.pos.y, sim.pos.z);
           soundEngine.playGloveSave();
           this.resolveShotOutcome('saved');
         } else {
@@ -5905,6 +6815,7 @@ export class FreeKickEngine {
               const parrySide = sim.pos.x >= this.gkCurrentX ? 1 : -1;
               const isCornerParry =
                 canTriggerRebound &&
+                !isCornerShot &&
                 !this.teammateHeaderRequested &&
                 Math.abs(sim.pos.x) > 1.85 &&
                 sim.vel.length() > 21.5 &&
@@ -5919,7 +6830,7 @@ export class FreeKickEngine {
                 sim.vel.z = -3.8;
                 sim.vel.y = 2.6;
                 sim.omega.set(0, parrySide * 22, 0);
-                this.impactShakeTimer = 0.14;
+                this.triggerGkSaveImpact(sim.pos.x, sim.pos.y, sim.pos.z);
                 soundEngine.playGloveSave();
                 this.resolveShotOutcome('saved');
               } else if (canTriggerRebound) {
@@ -5936,7 +6847,7 @@ export class FreeKickEngine {
                 sim.vel.z = THREE.MathUtils.lerp(4.0, 6.0, Math.random());
                 sim.vel.x = (parryTargetX - sim.pos.x) * 2.1;
                 sim.vel.y = THREE.MathUtils.lerp(2.15, 3.25, Math.random());
-                this.impactShakeTimer = 0.14;
+                this.triggerGkSaveImpact(sim.pos.x, sim.pos.y, sim.pos.z);
                 soundEngine.playGloveSave();
                 soundEngine.playCrowdGasp();
                 this.triggerCrowdReaction('miss', 1.4);
@@ -5945,6 +6856,7 @@ export class FreeKickEngine {
                 sim.vel.z = Math.abs(sim.vel.z) * 0.42 + 3.2;
                 sim.vel.x += (sim.pos.x - this.gkCurrentX) * 5.0;
                 sim.vel.y = Math.max(1.8, sim.vel.y * 0.5 + 2.0);
+                this.triggerGkSaveImpact(sim.pos.x, sim.pos.y, sim.pos.z);
                 soundEngine.playGloveSave();
                 this.resolveShotOutcome('saved');
               }
@@ -5961,10 +6873,7 @@ export class FreeKickEngine {
         Math.abs(sim.pos.x) < GOAL_HALF_WIDTH - BALL_RADIUS * 0.4 &&
         sim.pos.y < GOAL_HEIGHT - BALL_RADIUS * 0.35
       ) {
-        if (
-          (this.mode === 'impossible' || (this.turnRole === 'gk' && this.isAdmin)) &&
-          !isAdminKick
-        ) {
+        if (this.turnRole === 'gk' && this.isAdmin && !isAdminKick) {
           this.gkSavedBall = true;
           this.gkCurrentX = THREE.MathUtils.clamp(
             sim.pos.x,
@@ -5980,6 +6889,7 @@ export class FreeKickEngine {
           sim.pos.z = 0.25;
           sim.vel.z = Math.abs(sim.vel.z) * 0.5 + 4.0;
           sim.vel.y = Math.max(2.0, sim.vel.y * 0.4 + 2.0);
+          this.triggerGkSaveImpact(sim.pos.x, sim.pos.y, sim.pos.z);
           soundEngine.playGloveSave();
           this.resolveShotOutcome('saved');
         } else {
@@ -6061,10 +6971,10 @@ export class FreeKickEngine {
           sim.pos.z - this.teammateCurrentPos.z,
         );
         if (
-          reboundDist < 1.25 &&
-          sim.pos.y < 1.65 &&
-          this.gkSaveCooldown <= 0.22 &&
-          sim.pos.z > 0.65
+          reboundDist < 1.38 &&
+          sim.pos.y < 1.75 &&
+          this.gkSaveCooldown <= 0.24 &&
+          sim.pos.z > 0.45
         ) {
           this.reboundState = 'struck';
           this.reboundScoredShot = true;
@@ -6098,14 +7008,22 @@ export class FreeKickEngine {
           this.gkPlan = newPlan;
         }
       } else if (!this.teammateHasHeaded && this.reboundState === 'none') {
+        const isCornerFlight =
+          this.ballStart.z <= 2.4 && Math.abs(this.ballStart.x) >= 24;
         if (
           !this.teammateHeaderRequested &&
-          sim.pos.z < 12.5 &&
-          sim.pos.y > 1.25
+          sim.pos.z < 13.5 &&
+          sim.pos.y > 0.95
         ) {
-          this.teammateTargetPos.x = THREE.MathUtils.clamp(sim.pos.x, -4.5, 4.5);
+          if (isCornerFlight && Math.abs(sim.pos.x) < 15.0) {
+            this.teammateTargetPos.x = THREE.MathUtils.clamp(sim.pos.x, -5.8, 5.8);
+            this.teammateTargetPos.z = THREE.MathUtils.clamp(sim.pos.z, 2.2, 11.5);
+          } else {
+            this.teammateTargetPos.x = THREE.MathUtils.clamp(sim.pos.x, -4.5, 4.5);
+          }
         }
-        const runLambda = this.teammateHeaderRequested ? 7.2 : 4.8;
+        const runLambda =
+          this.teammateHeaderRequested || isCornerFlight ? 7.6 : 4.8;
         this.teammateCurrentPos.x = THREE.MathUtils.damp(
           this.teammateCurrentPos.x,
           this.teammateTargetPos.x,
@@ -6125,12 +7043,12 @@ export class FreeKickEngine {
         );
         if (
           !this.teammateHasJumped &&
-          horizDist < 3.4 &&
-          sim.pos.y > 1.25 &&
-          sim.pos.z > this.teammateCurrentPos.z - 0.8
+          horizDist < 3.6 &&
+          sim.pos.y > 1.2 &&
+          sim.pos.z > this.teammateCurrentPos.z - 1.1
         ) {
           this.teammateHasJumped = true;
-          this.teammateJumpVel = 4.6;
+          this.teammateJumpVel = 4.65;
         }
       }
 
@@ -6280,42 +7198,53 @@ export class FreeKickEngine {
         }
 
         this.playerGkDiveElapsed += dt;
-        const diveDuration = this.isAdmin ? 0.48 : 0.98;
+        const diveDuration = this.isAdmin ? 0.52 : 1.04;
         const diveProgress = THREE.MathUtils.clamp(
           this.playerGkDiveElapsed / diveDuration,
           0,
           1,
         );
-        const airT = Math.min(1, diveProgress / 0.56);
-        const plunge = THREE.MathUtils.smoothstep(diveProgress, 0.4, 0.86);
+        const launchMix = THREE.MathUtils.smoothstep(diveProgress, 0.05, 0.24);
+        const airT = THREE.MathUtils.clamp((diveProgress - 0.08) / 0.50, 0, 1);
+        const plunge = THREE.MathUtils.smoothstep(diveProgress, 0.50, 0.84);
+        const recover = THREE.MathUtils.smoothstep(diveProgress, 0.84, 1.0);
 
         const adminTrackSpeed = this.isAdmin ? 2.2 : 1.0;
-        const basePlayerGkLambda = this.isAdmin ? 8.8 : 5.0;
+        const basePlayerGkLambda = this.isAdmin ? 8.8 : 5.2;
         this.gkCurrentX = THREE.MathUtils.damp(
           this.gkCurrentX,
           this.playerGkDiveTargetX,
-          basePlayerGkLambda * gkProfile.diveSpeedMult * adminTrackSpeed * (1 - plunge * 0.48),
+          basePlayerGkLambda * gkProfile.diveSpeedMult * adminTrackSpeed * (1 - plunge * 0.52),
           dt,
         );
-        const jumpPeak = Math.max(0.18, (this.playerGkDiveTargetY - 0.84) * 0.82);
-        this.gkCurrentY = airT < 1 ? Math.sin(airT * Math.PI) * jumpPeak : 0;
+        const jumpPeak = Math.max(0.22, (this.playerGkDiveTargetY - 0.78) * 0.88);
+        this.gkCurrentY = airT > 0 && airT < 1 ? Math.sin(airT * Math.PI) * jumpPeak : 0;
 
         const dir = this.playerGkDiveDir;
-        const airBodyY = 0.92 + Math.sin(airT * Math.PI) * 0.08;
-        const targetBodyY = THREE.MathUtils.lerp(airBodyY, 0.22, plunge);
+        const airBodyY = 0.92 + Math.sin(airT * Math.PI) * 0.14;
+        const slideBodyY = THREE.MathUtils.lerp(0.24, 0.31, recover);
+        const targetBodyY = THREE.MathUtils.lerp(airBodyY, slideBodyY, plunge);
         const targetRoll =
-          dir !== 0 ? -dir * THREE.MathUtils.lerp(1.42, 1.54, plunge) : 0;
+          dir !== 0
+            ? -dir *
+              THREE.MathUtils.lerp(
+                1.42,
+                THREE.MathUtils.lerp(1.52, 1.16, recover),
+                plunge,
+              ) *
+              launchMix
+            : 0;
         const targetPitch =
           dir !== 0
-            ? THREE.MathUtils.lerp(0.16, 0.42, plunge)
-            : THREE.MathUtils.lerp(0.55, 1.16, plunge);
+            ? THREE.MathUtils.lerp(0.08, 0.24, plunge) * launchMix
+            : THREE.MathUtils.lerp(0.48, 1.08, plunge) * launchMix;
 
-        this.gkDiveRoll = THREE.MathUtils.damp(this.gkDiveRoll, targetRoll, 11.5, dt);
-        this.gkDivePitch = THREE.MathUtils.damp(this.gkDivePitch, targetPitch, 11.0, dt);
+        this.gkDiveRoll = THREE.MathUtils.damp(this.gkDiveRoll, targetRoll, 13.5, dt);
+        this.gkDivePitch = THREE.MathUtils.damp(this.gkDivePitch, targetPitch, 12.0, dt);
         this.gkCurrentBodyY = THREE.MathUtils.damp(
           this.gkCurrentBodyY,
           targetBodyY,
-          11.5,
+          12.5,
           dt,
         );
         this.gkDiveProgress = diveProgress;
@@ -6329,11 +7258,17 @@ export class FreeKickEngine {
           this.gkCurrentBodyY,
           diveProgress,
         );
-        if (!this.gkTurfImpactDone && diveProgress >= 0.48) {
+        if (!this.gkTurfImpactDone && diveProgress >= 0.54) {
           this.gkTurfImpactDone = true;
           const sprayIntensity =
-            this.weather === 'rain' || this.weather === 'storm' ? 1.65 : 1.3;
+            this.weather === 'rain' || this.weather === 'storm' ? 1.75 : 1.35;
           this.spawnTurfBurst(this.gkCurrentX, 0.04, 0.45, sprayIntensity);
+        } else if (diveProgress >= 0.56 && diveProgress <= 0.76) {
+          this.gkSlideDustTimer += dt;
+          if (this.gkSlideDustTimer >= 0.055) {
+            this.gkSlideDustTimer = 0;
+            this.spawnTurfBurst(this.gkCurrentX, 0.03, 0.45, 0.45);
+          }
         }
       } else {
         // Player can also sidestep before diving
@@ -6356,13 +7291,13 @@ export class FreeKickEngine {
         (isImpossible || this.difficulty !== 'easy') &&
         sim.pos.z > 0.6 &&
         sim.pos.z < 26.0 &&
-        this.flightElapsed - this.gkLastRepredictTime >= (isImpossible ? 0.015 : 0.11)
+        this.flightElapsed - this.gkLastRepredictTime >= (isImpossible ? 0.085 : 0.11)
       ) {
         this.gkLastRepredictTime = this.flightElapsed;
         const pred = predictBallAtZ(sim, 0.45, this.scenario.wind);
         if (pred && Math.abs(pred.x) < GOAL_HALF_WIDTH + 0.9) {
           const trackAlpha = isImpossible
-            ? 1.0
+            ? 0.65
             : this.difficulty === 'extreme'
             ? 0.6
             : this.difficulty === 'pro'
@@ -6393,50 +7328,61 @@ export class FreeKickEngine {
         }
       }
 
-      const diveDuration = isImpossible ? 0.46 : 1.05;
+      const diveDuration = isImpossible ? 0.92 : 1.08;
       const diveProgress = THREE.MathUtils.clamp(
         (this.flightElapsed - this.gkPlan.reactionDelay) / diveDuration,
         0,
         1,
       );
-      const airT = Math.min(1, diveProgress / 0.56);
-      const plunge = THREE.MathUtils.smoothstep(diveProgress, 0.4, 0.86);
+      const launchMix = THREE.MathUtils.smoothstep(diveProgress, 0.05, 0.24);
+      const airT = THREE.MathUtils.clamp((diveProgress - 0.08) / 0.50, 0, 1);
+      const plunge = THREE.MathUtils.smoothstep(diveProgress, 0.50, 0.84);
+      const recover = THREE.MathUtils.smoothstep(diveProgress, 0.84, 1.0);
 
       const diffSpeedBoost = isImpossible
-        ? 3.4
+        ? 1.24
         : this.difficulty === 'extreme'
-        ? 1.12
+        ? 1.14
         : this.difficulty === 'pro'
-        ? 1.02
+        ? 1.04
         : this.difficulty === 'medium'
-        ? 0.9
-        : 0.74;
-      const baseAiLambda = isImpossible ? 9.4 : 4.6;
+        ? 0.92
+        : 0.76;
+      const baseAiLambda = isImpossible ? 5.3 : 4.8;
       this.gkCurrentX = THREE.MathUtils.damp(
         this.gkCurrentX,
         this.gkPlan.diveTargetX,
-        baseAiLambda * gkProfile.diveSpeedMult * diffSpeedBoost * (1 - plunge * 0.48),
+        baseAiLambda * gkProfile.diveSpeedMult * diffSpeedBoost * (1 - plunge * 0.52),
         dt,
       );
-      const jumpPeak = Math.max(0.18, (this.gkPlan.diveTargetY - 0.82) * 0.84);
-      this.gkCurrentY = airT < 1 ? Math.sin(airT * Math.PI) * jumpPeak : 0;
+      const jumpPeak = Math.max(0.22, (this.gkPlan.diveTargetY - 0.78) * 0.88);
+      this.gkCurrentY = airT > 0 && airT < 1 ? Math.sin(airT * Math.PI) * jumpPeak : 0;
 
       const dir = this.gkPlan.diveDir;
-      const airBodyY = 0.92 + Math.sin(airT * Math.PI) * 0.08;
-      const targetBodyY = THREE.MathUtils.lerp(airBodyY, 0.22, plunge);
+      const airBodyY = 0.92 + Math.sin(airT * Math.PI) * 0.14;
+      const slideBodyY = THREE.MathUtils.lerp(0.24, 0.31, recover);
+      const targetBodyY = THREE.MathUtils.lerp(airBodyY, slideBodyY, plunge);
       const targetRoll =
-        dir !== 0 ? -dir * THREE.MathUtils.lerp(1.44, 1.56, plunge) : 0;
+        dir !== 0
+          ? -dir *
+            THREE.MathUtils.lerp(
+              1.42,
+              THREE.MathUtils.lerp(1.52, 1.16, recover),
+              plunge,
+            ) *
+            launchMix
+          : 0;
       const targetPitch =
         dir !== 0
-          ? THREE.MathUtils.lerp(0.16, 0.42, plunge)
-          : THREE.MathUtils.lerp(0.55, 1.18, plunge);
+          ? THREE.MathUtils.lerp(0.08, 0.24, plunge) * launchMix
+          : THREE.MathUtils.lerp(0.48, 1.08, plunge) * launchMix;
 
-      this.gkDiveRoll = THREE.MathUtils.damp(this.gkDiveRoll, targetRoll, 12.2, dt);
-      this.gkDivePitch = THREE.MathUtils.damp(this.gkDivePitch, targetPitch, 11.5, dt);
+      this.gkDiveRoll = THREE.MathUtils.damp(this.gkDiveRoll, targetRoll, 13.5, dt);
+      this.gkDivePitch = THREE.MathUtils.damp(this.gkDivePitch, targetPitch, 12.0, dt);
       this.gkCurrentBodyY = THREE.MathUtils.damp(
         this.gkCurrentBodyY,
         targetBodyY,
-        12.0,
+        12.5,
         dt,
       );
       this.gkDiveProgress = diveProgress;
@@ -6450,11 +7396,17 @@ export class FreeKickEngine {
         this.gkCurrentBodyY,
         diveProgress,
       );
-      if (!this.gkTurfImpactDone && diveProgress >= 0.48) {
+      if (!this.gkTurfImpactDone && diveProgress >= 0.54) {
         this.gkTurfImpactDone = true;
         const sprayIntensity =
-          this.weather === 'rain' || this.weather === 'storm' ? 1.65 : 1.3;
+          this.weather === 'rain' || this.weather === 'storm' ? 1.75 : 1.35;
         this.spawnTurfBurst(this.gkCurrentX, 0.04, 0.45, sprayIntensity);
+      } else if (diveProgress >= 0.56 && diveProgress <= 0.76) {
+        this.gkSlideDustTimer += dt;
+        if (this.gkSlideDustTimer >= 0.055) {
+          this.gkSlideDustTimer = 0;
+          this.spawnTurfBurst(this.gkCurrentX, 0.03, 0.45, 0.45);
+        }
       }
     }
 
@@ -6466,10 +7418,11 @@ export class FreeKickEngine {
     (this.ballObj.shadowMesh.material as THREE.MeshBasicMaterial).opacity =
       THREE.MathUtils.clamp(0.65 - sim.pos.y * 0.14, 0.12, 0.65);
 
-    // Update Ball Trail Ribbon
+    // Update Ball Trail Ribbon & Volumetric Comet Trail
     this.trailPoints.push(sim.pos.clone());
     if (this.trailPoints.length > 90) this.trailPoints.shift();
     this.trailGeo.setFromPoints(this.trailPoints);
+    this.updateBallCometVisuals();
 
     // Record Replay Frame
     this.replayFrames.push({
@@ -6575,6 +7528,7 @@ export class FreeKickEngine {
     this.trailPoints.push(frame.ballPos.clone());
     if (this.trailPoints.length > 70) this.trailPoints.shift();
     this.trailGeo.setFromPoints(this.trailPoints);
+    this.updateBallCometVisuals();
   }
 
   private updateCrowd(dt: number): void {
@@ -6786,6 +7740,20 @@ export class FreeKickEngine {
       }
     }
 
+    // 3b. Expanding Goalkeeper Glove Parry Shockwave Ring & Spark Flare
+    if (this.gkSaveRingTimer < 0.48) {
+      this.gkSaveRingTimer += dt;
+      const t = Math.min(1, this.gkSaveRingTimer / 0.48);
+      this.gkSaveRingMesh.scale.setScalar(0.55 + t * 2.85);
+      this.gkSaveRingMat.opacity = Math.max(0, (1 - t) * (1 - t) * 0.95);
+      this.gkSaveFlashMesh.scale.setScalar(1.25 - t * 0.65);
+      this.gkSaveFlashMesh.rotation.z = t * 1.4;
+      this.gkSaveFlashMat.opacity = Math.max(0, (1 - t * 1.35) * 0.92);
+      if (t >= 1) {
+        this.gkSaveRingGroup.visible = false;
+      }
+    }
+
     // 4. Dynamic Goal Flash Light decay
     if (this.goalFlashTimer < 1.35) {
       this.goalFlashTimer += dt;
@@ -6835,6 +7803,39 @@ export class FreeKickEngine {
         this.turfDustMesh.visible = false;
       }
     }
+
+    // 6. Cleat Sprint Sparks / Energy Trail Particles (zero-GC)
+    if (this.sprintTrailMesh && this.sprintTrailMesh.visible) {
+      let anySprintAlive = false;
+      for (let i = 0; i < this.sprintTrailLife.length; i++) {
+        const life = this.sprintTrailLife[i];
+        if (life <= 0) {
+          _sprintObj.position.set(0, -10, 0);
+          _sprintObj.scale.setScalar(0.001);
+          _sprintObj.updateMatrix();
+          this.sprintTrailMesh.setMatrixAt(i, _sprintObj.matrix);
+          continue;
+        }
+        anySprintAlive = true;
+        const nextLife = Math.max(0, life - dt);
+        this.sprintTrailLife[i] = nextLife;
+        const p = this.sprintTrailPos[i];
+        const v = this.sprintTrailVel[i];
+        v.y -= 2.4 * dt;
+        p.addScaledVector(v, dt);
+        if (p.y < 0.03) p.y = 0.03;
+        const ratio = nextLife / Math.max(0.05, this.sprintTrailMaxLife[i]);
+        _sprintObj.position.copy(p);
+        _sprintObj.rotation.set(nextLife * 14 + i, nextLife * 11, i);
+        _sprintObj.scale.setScalar(Math.max(0.06, ratio * 1.15));
+        _sprintObj.updateMatrix();
+        this.sprintTrailMesh.setMatrixAt(i, _sprintObj.matrix);
+      }
+      this.sprintTrailMesh.instanceMatrix.needsUpdate = true;
+      if (!anySprintAlive) {
+        this.sprintTrailMesh.visible = false;
+      }
+    }
   }
 
   private createWeatherSystem(): void {
@@ -6862,13 +7863,13 @@ export class FreeKickEngine {
     }
     this.scene.add(this.rainMesh);
 
-    // 550 Drifting Snowflakes
-    const snowCount = 550;
-    const snowGeo = new THREE.OctahedronGeometry(0.055, 0);
+    // 1,500 Crisp Drifting Snowflakes across the snowy stadium
+    const snowCount = 1500;
+    const snowGeo = new THREE.OctahedronGeometry(0.044, 0);
     const snowMat = new THREE.MeshBasicMaterial({
-      color: 0xf8fafc,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.88,
       depthWrite: false,
     });
     this.snowMesh = new THREE.InstancedMesh(snowGeo, snowMat, snowCount);
@@ -6983,6 +7984,26 @@ export class FreeKickEngine {
     if (this.stadium?.mudPuddlesGroup) {
       this.stadium.mudPuddlesGroup.visible = isRainOrStorm;
     }
+    this.stadium?.setSnowSurface(this.weather === 'snow');
+    if (this.stadium?.pitchMat) {
+      if (isRainOrStorm) {
+        this.stadium.pitchMat.clearcoat = 0.24;
+        this.stadium.pitchMat.clearcoatRoughness = 0.28;
+        this.stadium.pitchMat.roughness = 0.62;
+        this.stadium.pitchMat.envMapIntensity = 0.55;
+      } else if (this.weather === 'snow') {
+        this.stadium.pitchMat.clearcoat = 0.0;
+        this.stadium.pitchMat.clearcoatRoughness = 0.85;
+        this.stadium.pitchMat.roughness = 0.93;
+        this.stadium.pitchMat.envMapIntensity = 0.16;
+      } else {
+        this.stadium.pitchMat.clearcoat = 0.0;
+        this.stadium.pitchMat.clearcoatRoughness = 0.65;
+        this.stadium.pitchMat.roughness = 0.92;
+        this.stadium.pitchMat.envMapIntensity = 0.28;
+      }
+      this.stadium.pitchMat.needsUpdate = true;
+    }
     this.lightningFlash = 0;
     if (this.lightningLight) this.lightningLight.intensity = 0;
     if (this.lightningBoltGroup) this.lightningBoltGroup.visible = false;
@@ -6995,31 +8016,52 @@ export class FreeKickEngine {
     }
 
     let skyHex = 0x071226;
-    let fogDensity = 0.0046;
-    let hemiInt = 1.02;
-    let keyInt = 2.4;
-    let rimInt = 1.2;
+    let fogDensity = 0.002;
+    let hemiInt = 0.68;
+    let keyInt = 1.72;
+    let rimInt = 0.85;
+    let bloomStrength = 0.07;
+    let bloomRadius = 0.22;
+    let bloomThreshold = 1.08;
+    let exposure = 1.0;
 
     if (this.weather === 'rain') {
       skyHex = 0x0b1628;
-      fogDensity = 0.0086;
-      hemiInt = 0.82;
-      keyInt = 1.75;
-      rimInt = 1.35;
+      fogDensity = 0.0046;
+      hemiInt = 0.62;
+      keyInt = 1.42;
+      rimInt = 0.95;
+      bloomStrength = 0.08;
+      bloomRadius = 0.24;
+      bloomThreshold = 1.08;
     } else if (this.weather === 'snow') {
-      skyHex = 0x16243a;
-      fogDensity = 0.0105;
-      hemiInt = 1.18;
-      keyInt = 1.9;
-      rimInt = 1.45;
+      skyHex = 0x6ea0ce;
+      fogDensity = 0.0016;
+      hemiInt = 0.58;
+      keyInt = 1.62;
+      rimInt = 0.72;
+      bloomStrength = 0.025;
+      bloomRadius = 0.15;
+      bloomThreshold = 1.32;
+      exposure = 0.96;
     } else if (this.weather === 'storm') {
       skyHex = 0x040914;
-      fogDensity = 0.0112;
-      hemiInt = 0.58;
-      keyInt = 1.25;
-      rimInt = 1.05;
+      fogDensity = 0.0062;
+      hemiInt = 0.5;
+      keyInt = 1.15;
+      rimInt = 0.85;
+      bloomStrength = 0.1;
+      bloomRadius = 0.26;
+      bloomThreshold = 1.04;
+      exposure = 0.98;
     }
 
+    this.renderer.toneMappingExposure = exposure;
+    if (this.bloomPass) {
+      this.bloomPass.strength = bloomStrength;
+      this.bloomPass.radius = bloomRadius;
+      this.bloomPass.threshold = bloomThreshold;
+    }
     (this.scene.background as THREE.Color).setHex(skyHex);
     this.scene.fog = new THREE.FogExp2(skyHex, fogDensity);
     if (this.hemiLight) this.hemiLight.intensity = hemiInt;
@@ -7063,6 +8105,7 @@ export class FreeKickEngine {
     }
 
     if (this.weather === 'snow') {
+      const camPos = this.camera.position;
       for (let i = 0; i < this.snowPos.length; i++) {
         const p = this.snowPos[i];
         const phase = this.snowPhase[i];
@@ -7077,13 +8120,17 @@ export class FreeKickEngine {
           p.x = (Math.random() - 0.5) * 84;
           p.z = focusZ + (Math.random() - 0.5) * 76;
         }
+        const dx = p.x - camPos.x;
+        const dy = p.y - camPos.y;
+        const dz = p.z - camPos.z;
+        const nearCam = dx * dx + dy * dy + dz * dz < 7.5;
         _weatherObj.position.copy(p);
         _weatherObj.rotation.set(
           this.elapsedTotal + phase,
           this.elapsedTotal * 0.7,
           0,
         );
-        _weatherObj.scale.setScalar(1);
+        _weatherObj.scale.setScalar(nearCam ? 0 : 1);
         _weatherObj.updateMatrix();
         this.snowMesh.setMatrixAt(i, _weatherObj.matrix);
       }
@@ -7171,6 +8218,40 @@ export class FreeKickEngine {
         );
         targetLook.set(0, 0.8, PITCH_HALF_L);
         targetFov = 48;
+      } else if (this.phase === 'match_goal') {
+        const goalElapsed = Math.max(0, this.matchGoalCelebrateDuration - this.matchGoalTimer);
+        const goalZ = this.matchGoalTeam === 'away' ? PITCH_LENGTH : 0;
+        const scorer =
+          (this.matchGoalScorerIdx !== null
+            ? this.matchPlayers[this.matchGoalScorerIdx]
+            : undefined) ??
+          this.matchPlayers.find(
+            (p) => p.team === (this.matchGoalTeam ?? 'home') && p.role !== 'gk',
+          );
+
+        if (goalElapsed < 0.62 || !scorer) {
+          // Close goal-net impact angle so player clearly sees the ball bulging the net
+          const dirFromGoal = goalZ === 0 ? 1 : -1;
+          const sideSign = bp.x >= 0 ? -1 : 1;
+          targetPos.set(
+            THREE.MathUtils.clamp(bp.x * 0.45 + sideSign * 4.4, -8.5, 8.5),
+            2.35,
+            goalZ + dirFromGoal * 9.5,
+          );
+          targetLook.set(bp.x * 0.6, 1.25, goalZ + (goalZ === 0 ? -0.9 : 0.9));
+          targetFov = 41;
+        } else {
+          // Dedicated close-up celebratory orbit camera following the goalscorer!
+          const orbitAngle = scorer.facingYaw + Math.sin(goalElapsed * 0.85) * 0.55;
+          const camDist = 3.85;
+          targetPos.set(
+            scorer.pos.x + Math.sin(orbitAngle) * camDist,
+            1.48,
+            scorer.pos.z + Math.cos(orbitAngle) * camDist,
+          );
+          targetLook.set(scorer.pos.x, 1.15, scorer.pos.z);
+          targetFov = 39;
+        }
       } else if (this.cameraPreset === 'broadcast') {
         targetPos.set(42, 20.5, THREE.MathUtils.clamp(bp.z + 4, 24, PITCH_LENGTH - 18));
         targetLook.set(bp.x * 0.4, 0.6, bp.z);
@@ -7314,6 +8395,8 @@ export class FreeKickEngine {
     this.boxDefenders.forEach((d) => d.player.dispose());
     this.cleanupMatchEntities();
     this.extraDisposables.forEach((d) => d.dispose());
+    this.bloomPass?.dispose();
+    this.composer?.dispose();
 
     if (this.renderer.domElement.parentNode === this.container) {
       this.container.removeChild(this.renderer.domElement);

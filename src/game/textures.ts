@@ -9,46 +9,72 @@ export function createPitchTexture(maxAnisotropy: number): THREE.CanvasTexture {
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
 
-  // Natural championship stadium ryegrass turf base
-  ctx.fillStyle = '#1d5e2d';
+  // Lush Championship Wembley / Bernabeu hybrid ryegrass base (balanced broadcast green, non-glaring)
+  ctx.fillStyle = '#185427';
   ctx.fillRect(0, 0, width, height);
 
-  // Crisp mowed horizontal stripes (18 bands) with soft mowed edges
+  // Crisp mowed horizontal bands (18 bands) with natural velvet roller contrast
   const bands = 18;
   const bandH = height / bands;
   for (let i = 0; i < bands; i++) {
     const grad = ctx.createLinearGradient(0, i * bandH, 0, (i + 1) * bandH);
     if (i % 2 === 0) {
-      grad.addColorStop(0, '#277a3b');
-      grad.addColorStop(0.5, '#2b8340');
-      grad.addColorStop(1, '#257538');
+      grad.addColorStop(0, '#1f6b32');
+      grad.addColorStop(0.18, '#247738');
+      grad.addColorStop(0.5, '#287e3c');
+      grad.addColorStop(0.84, '#227235');
+      grad.addColorStop(1, '#1d642e');
     } else {
-      grad.addColorStop(0, '#1a5a2b');
-      grad.addColorStop(0.5, '#175427');
-      grad.addColorStop(1, '#1c5d2d');
+      grad.addColorStop(0, '#154e24');
+      grad.addColorStop(0.2, '#124620');
+      grad.addColorStop(0.5, '#10411d');
+      grad.addColorStop(0.82, '#144b22');
+      grad.addColorStop(1, '#175226');
     }
     ctx.fillStyle = grad;
     ctx.fillRect(0, i * bandH, width, bandH);
+
+    // Subtle roller track seam without harsh bright glare
+    ctx.fillStyle =
+      i % 2 === 0 ? 'rgba(134, 239, 172, 0.032)' : 'rgba(5, 24, 10, 0.08)';
+    ctx.fillRect(0, i * bandH, width, 3);
   }
 
-  // Subtle cross-cut checkerboard mowing sheen
+  // Cross-cut vertical checkerboard mowing sheen (adds rich 3D lawn depth)
   const cols = 14;
   for (let x = 0; x < cols; x++) {
-    ctx.fillStyle =
-      x % 2 === 0 ? 'rgba(255, 255, 255, 0.028)' : 'rgba(0, 0, 0, 0.032)';
+    const colGrad = ctx.createLinearGradient(
+      (x * width) / cols,
+      0,
+      ((x + 1) * width) / cols,
+      0,
+    );
+    if (x % 2 === 0) {
+      colGrad.addColorStop(0, 'rgba(187, 247, 208, 0.01)');
+      colGrad.addColorStop(0.5, 'rgba(187, 247, 208, 0.028)');
+      colGrad.addColorStop(1, 'rgba(187, 247, 208, 0.01)');
+    } else {
+      colGrad.addColorStop(0, 'rgba(6, 28, 12, 0.015)');
+      colGrad.addColorStop(0.5, 'rgba(6, 28, 12, 0.045)');
+      colGrad.addColorStop(1, 'rgba(6, 28, 12, 0.015)');
+    }
+    ctx.fillStyle = colGrad;
     ctx.fillRect((x * width) / cols, 0, width / cols, height);
   }
 
-  // Organic turf mottling & subtle soil warmth patches for natural ground realism
-  for (let i = 0; i < 420; i++) {
-    const px = ((i * 317) % width);
-    const py = ((i * 571) % height);
-    const r = 18 + (i % 42);
+  // Natural organic turf mottling & subtle emerald clover clusters
+  for (let i = 0; i < 640; i++) {
+    const px = ((i * 317 + 47) % width);
+    const py = ((i * 571 + 91) % height);
+    const r = 16 + (i % 46);
     const mott = ctx.createRadialGradient(px, py, 2, px, py, r);
-    mott.addColorStop(
-      0,
-      i % 3 === 0 ? 'rgba(62, 130, 56, 0.06)' : 'rgba(18, 48, 22, 0.075)',
-    );
+    if (i % 4 === 0) {
+      mott.addColorStop(0, 'rgba(74, 222, 128, 0.035)');
+    } else if (i % 3 === 0) {
+      mott.addColorStop(0, 'rgba(77, 124, 15, 0.04)');
+    } else {
+      mott.addColorStop(0, 'rgba(10, 40, 18, 0.075)');
+    }
     mott.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = mott;
     ctx.beginPath();
@@ -56,19 +82,26 @@ export function createPitchTexture(maxAnisotropy: number): THREE.CanvasTexture {
     ctx.fill();
   }
 
-  // High-density grass blade micro-strokes (varied golden-green & deep turf tones)
-  for (let i = 0; i < 72000; i++) {
-    const gx = Math.random() * width;
-    const gy = Math.random() * height;
-    const roll = Math.random();
-    if (roll > 0.62) {
-      ctx.fillStyle = 'rgba(134, 239, 172, 0.095)';
-    } else if (roll > 0.28) {
-      ctx.fillStyle = 'rgba(190, 242, 100, 0.055)';
+  // Dense directional grass leaf micro-strokes (aligned along mowing bands for velvety look)
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 88000; i++) {
+    const gx = ((i * 2654435761) >>> 0) % width;
+    const gy = (((i + 7919) * 2246822519) >>> 0) % height;
+    const band = Math.floor(gy / bandH);
+    const lean = band % 2 === 0 ? 1.8 : -1.8;
+    const roll = (i % 100) / 100;
+    if (roll > 0.68) {
+      ctx.strokeStyle = 'rgba(134, 239, 172, 0.075)';
+    } else if (roll > 0.36) {
+      ctx.strokeStyle = 'rgba(132, 204, 22, 0.048)';
     } else {
-      ctx.fillStyle = 'rgba(5, 32, 12, 0.13)';
+      ctx.strokeStyle = 'rgba(4, 30, 12, 0.16)';
     }
-    ctx.fillRect(gx, gy, 1.5, 3.5);
+    ctx.lineWidth = 1.15;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy);
+    ctx.lineTo(gx + lean, gy - 4.2);
+    ctx.stroke();
   }
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -95,26 +128,38 @@ export function createPitchDetailMaps(maxAnisotropy: number): {
   roughCanvas.height = size;
   const rCtx = roughCanvas.getContext('2d')!;
 
-  bCtx.fillStyle = '#808080';
+  bCtx.fillStyle = '#7e7e7e';
   bCtx.fillRect(0, 0, size, size);
 
-  // Alternate mowed band roughness so floodlights reflect differently per stripe
+  // Alternate mowed band roughness without shiny hotspots
   const bands = 18;
   const bandH = size / bands;
   for (let i = 0; i < bands; i++) {
-    rCtx.fillStyle = i % 2 === 0 ? '#b2b2b2' : '#d2d2d2';
+    rCtx.fillStyle = i % 2 === 0 ? '#c4c4c4' : '#e0e0e0';
     rCtx.fillRect(0, i * bandH, size, bandH);
   }
+  const cols = 14;
+  for (let c = 0; c < cols; c++) {
+    rCtx.fillStyle = c % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)';
+    rCtx.fillRect((c * size) / cols, 0, size / cols, size);
+  }
 
-  // Blade height micro-relief + specular dew flecks
-  for (let i = 0; i < 38000; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const bright = Math.random() > 0.5;
-    bCtx.fillStyle = bright ? '#c4c4c4' : '#4a4a4a';
-    bCtx.fillRect(x, y, 2, 4);
+  // Directional grass blade relief (matte-textured turf)
+  bCtx.lineCap = 'round';
+  for (let i = 0; i < 46000; i++) {
+    const x = ((i * 19349663) >>> 0) % size;
+    const y = (((i + 5113) * 83492791) >>> 0) % size;
+    const bright = (i & 1) === 0;
+    const lean = Math.floor(y / bandH) % 2 === 0 ? 1.5 : -1.5;
+    bCtx.strokeStyle = bright ? '#c8c8c8' : '#424242';
+    bCtx.lineWidth = 1.4;
+    bCtx.beginPath();
+    bCtx.moveTo(x, y);
+    bCtx.lineTo(x + lean, y - 4);
+    bCtx.stroke();
+
     if (i % 3 === 0) {
-      rCtx.fillStyle = bright ? '#989898' : '#e0e0e0';
+      rCtx.fillStyle = bright ? '#b8b8b8' : '#ebebeb';
       rCtx.fillRect(x, y, 2, 3);
     }
   }
@@ -132,6 +177,197 @@ export function createPitchDetailMaps(maxAnisotropy: number): {
   roughnessMap.needsUpdate = true;
 
   return { bumpMap, roughnessMap };
+}
+
+export function createGoalWearDecalTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, size, size);
+
+  const grad = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    size * 0.04,
+    size / 2,
+    size / 2,
+    size * 0.48,
+  );
+  grad.addColorStop(0, 'rgba(92, 74, 42, 0.34)');
+  grad.addColorStop(0.38, 'rgba(68, 78, 38, 0.22)');
+  grad.addColorStop(0.75, 'rgba(34, 72, 32, 0.1)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle cleat scuff marks inside worn zone
+  for (let i = 0; i < 65; i++) {
+    const a = (i * 1.9) % (Math.PI * 2);
+    const r = ((i * 19) % 86) * 0.9;
+    const sx = size / 2 + Math.cos(a) * r;
+    const sy = size / 2 + Math.sin(a) * r * 0.72;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(110, 88, 52, 0.22)' : 'rgba(24, 52, 22, 0.18)';
+    ctx.fillRect(sx, sy, 3.5, 1.5);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createPitchPerimeterTexture(
+  maxAnisotropy: number,
+): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  // Deep Champions-League synthetic emerald apron texture
+  ctx.fillStyle = '#0e3c24';
+  ctx.fillRect(0, 0, size, size);
+
+  for (let y = 0; y < size; y += 32) {
+    ctx.fillStyle = y % 64 === 0 ? 'rgba(16, 185, 129, 0.065)' : 'rgba(0, 0, 0, 0.08)';
+    ctx.fillRect(0, y, size, 32);
+  }
+  for (let i = 0; i < 4000; i++) {
+    const x = ((i * 997) % size);
+    const y = ((i * 541) % size);
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(52, 211, 153, 0.04)' : 'rgba(2, 20, 12, 0.08)';
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createSnowPitchTexture(
+  maxAnisotropy: number,
+): THREE.CanvasTexture {
+  const width = 2048;
+  const height = 2048;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+
+  // Crisp snow-blanketed pitch base with distinct alpine-blue depth
+  ctx.fillStyle = '#cbe0f3';
+  ctx.fillRect(0, 0, width, height);
+
+  // High-contrast snow-plowed horizontal bands (18 bands matching pitch stripes)
+  const bands = 18;
+  const bandH = height / bands;
+  for (let i = 0; i < bands; i++) {
+    const grad = ctx.createLinearGradient(0, i * bandH, 0, (i + 1) * bandH);
+    if (i % 2 === 0) {
+      grad.addColorStop(0, '#eaf2fc');
+      grad.addColorStop(0.5, '#f6faff');
+      grad.addColorStop(1, '#e6f0fb');
+    } else {
+      grad.addColorStop(0, '#c4daef');
+      grad.addColorStop(0.5, '#bad3eb');
+      grad.addColorStop(1, '#c8ddf0');
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, i * bandH, width, bandH);
+
+    // Sharp snowplow ridge seam between bands for crisp spatial reading
+    ctx.fillStyle =
+      i % 2 === 0 ? 'rgba(255, 255, 255, 0.35)' : 'rgba(92, 134, 175, 0.22)';
+    ctx.fillRect(0, i * bandH, width, 3);
+  }
+
+  // Organic wind-blown snowdrifts & crisp frozen emerald turf peeking through worn areas
+  for (let i = 0; i < 650; i++) {
+    const px = (i * 317 + 47) % width;
+    const py = (i * 571 + 91) % height;
+    const r = 16 + (i % 44);
+    const drift = ctx.createRadialGradient(px, py, 2, px, py, r);
+    if (i % 4 === 0) {
+      // Crisp frosted turf undertone underneath trodden snow
+      drift.addColorStop(0, 'rgba(30, 92, 58, 0.28)');
+    } else if (i % 2 === 0) {
+      drift.addColorStop(0, 'rgba(255, 255, 255, 0.42)');
+    } else {
+      drift.addColorStop(0, 'rgba(148, 186, 222, 0.26)');
+    }
+    drift.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = drift;
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Sharp granular frost crystals & cleat tracks across snow surface
+  for (let i = 0; i < 52000; i++) {
+    const x = ((i * 2654435761) >>> 0) % width;
+    const y = (((i + 7919) * 2246822519) >>> 0) % height;
+    if (i % 6 === 0) {
+      ctx.fillStyle = 'rgba(104, 142, 178, 0.28)';
+      ctx.fillRect(x, y, 2, 2);
+    } else if (i % 13 === 0) {
+      ctx.fillStyle = 'rgba(24, 78, 48, 0.16)';
+      ctx.fillRect(x, y, 2, 2);
+    } else {
+      ctx.fillStyle =
+        i % 2 === 0 ? 'rgba(255, 255, 255, 0.55)' : 'rgba(182, 212, 240, 0.30)';
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = maxAnisotropy;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function createSnowPerimeterTexture(
+  maxAnisotropy: number,
+): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#cfdff0';
+  ctx.fillRect(0, 0, size, size);
+
+  for (let y = 0; y < size; y += 32) {
+    ctx.fillStyle =
+      y % 64 === 0 ? 'rgba(255, 255, 255, 0.28)' : 'rgba(148, 180, 212, 0.14)';
+    ctx.fillRect(0, y, size, 32);
+  }
+  for (let i = 0; i < 4200; i++) {
+    const x = (i * 997) % size;
+    const y = (i * 541) % size;
+    ctx.fillStyle =
+      i % 2 === 0 ? 'rgba(255, 255, 255, 0.36)' : 'rgba(148, 175, 205, 0.18)';
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = maxAnisotropy;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 export function createFabricBumpTexture(
@@ -560,6 +796,123 @@ function drawKitPatternBase(
       }
     }
     ctx.globalAlpha = 1;
+  } else if (pattern === 'aurora_wave') {
+    // Sweeping Aurora Borealis silk ribbons + luminous frost specks
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, '#042f2e');
+    grad.addColorStop(0.45, bgHex);
+    grad.addColorStop(1, '#1e1b4b');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    for (let w = 0; w < 5; w++) {
+      const wg = ctx.createLinearGradient(0, w * (size * 0.2), size, (w + 1) * (size * 0.2));
+      wg.addColorStop(0, 'rgba(45, 212, 191, 0.04)');
+      wg.addColorStop(0.5, w % 2 === 0 ? 'rgba(45, 212, 191, 0.34)' : 'rgba(56, 189, 248, 0.28)');
+      wg.addColorStop(1, 'rgba(167, 139, 250, 0.08)');
+      ctx.fillStyle = wg;
+      ctx.beginPath();
+      ctx.moveTo(0, size * (0.14 + w * 0.17));
+      ctx.bezierCurveTo(
+        size * 0.32,
+        size * (0.04 + w * 0.16),
+        size * 0.68,
+        size * (0.28 + w * 0.15),
+        size,
+        size * (0.1 + w * 0.18),
+      );
+      ctx.lineTo(size, size * (0.22 + w * 0.18));
+      ctx.bezierCurveTo(
+        size * 0.68,
+        size * (0.38 + w * 0.15),
+        size * 0.32,
+        size * (0.14 + w * 0.16),
+        0,
+        size * (0.24 + w * 0.17),
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  } else if (pattern === 'dragon_scale') {
+    // Imperial overlapping dragon scale armor mesh with gold edges
+    const step = size / 8;
+    for (let row = 0; row < 10; row++) {
+      for (let col = -1; col < 10; col++) {
+        const cx = (col + (row % 2 === 0 ? 0.5 : 0)) * step;
+        const cy = row * (step * 0.72);
+        const sg = ctx.createRadialGradient(cx, cy - step * 0.12, 2, cx, cy, step * 0.6);
+        sg.addColorStop(0, 'rgba(255, 255, 255, 0.16)');
+        sg.addColorStop(0.65, 'rgba(0, 0, 0, 0.18)');
+        sg.addColorStop(1, 'rgba(0, 0, 0, 0.38)');
+        ctx.fillStyle = sg;
+        ctx.beginPath();
+        ctx.arc(cx, cy, step * 0.56, 0, Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = accentHex;
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+  } else if (pattern === 'thunder_bolt') {
+    // Electric lightning streaks + storm core glow
+    const grad = ctx.createRadialGradient(size * 0.5, size * 0.45, 6, size * 0.5, size * 0.45, size * 0.7);
+    grad.addColorStop(0, 'rgba(56, 189, 248, 0.25)');
+    grad.addColorStop(1, 'rgba(15, 23, 42, 0.45)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.strokeStyle = accentHex;
+    ctx.lineJoin = 'miter';
+    for (let b = 0; b < 5; b++) {
+      const bx = size * (0.14 + b * 0.18);
+      ctx.globalAlpha = b % 2 === 0 ? 0.65 : 0.35;
+      ctx.lineWidth = b % 2 === 0 ? 5 : 2.5;
+      ctx.beginPath();
+      ctx.moveTo(bx, 0);
+      ctx.lineTo(bx + 26, size * 0.32);
+      ctx.lineTo(bx - 16, size * 0.54);
+      ctx.lineTo(bx + 22, size * 0.8);
+      ctx.lineTo(bx - 8, size);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  } else if (pattern === 'sakura_gold') {
+    // Imperial blossom petals & gold leaf sash
+    const grad = ctx.createLinearGradient(0, 0, size, size);
+    grad.addColorStop(0, bgHex);
+    grad.addColorStop(1, '#fce7f3');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    // Diagonal gold brush sash
+    ctx.fillStyle = '#f59e0b';
+    ctx.globalAlpha = 0.24;
+    ctx.beginPath();
+    ctx.moveTo(0, size * 0.72);
+    ctx.lineTo(size * 0.78, 0);
+    ctx.lineTo(size, 0);
+    ctx.lineTo(0, size * 0.94);
+    ctx.closePath();
+    ctx.fill();
+
+    // Scattered stylized sakura petals
+    for (let p = 0; p < 22; p++) {
+      const px = ((p * 83 + 21) % (size - 32)) + 16;
+      const py = ((p * 119 + 37) % (size - 32)) + 16;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate((p * 0.7) % Math.PI);
+      ctx.fillStyle = p % 3 === 0 ? '#f59e0b' : accentHex;
+      ctx.globalAlpha = p % 2 === 0 ? 0.52 : 0.32;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 8, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   } else {
     // Classic woven vertical stripes + diagonal jacquard
     ctx.fillStyle = 'rgba(255,255,255,0.065)';
@@ -700,7 +1053,7 @@ export function createJerseyChestTexture(
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#ffffff';
   ctx.font = '700 18px "Barlow Condensed", sans-serif';
-  ctx.fillText('SÚT PHẠT PRO', size / 2, 145);
+  ctx.fillText('NEL FOOTBALL', size / 2, 145);
 
   // Bottom hem accent
   ctx.fillStyle = accentHex;
@@ -760,35 +1113,56 @@ export function createJerseyWrapTexture(
     ctx.globalAlpha = 1;
   });
 
-  // Top shoulder collar piping & bottom jersey hem trim
+  // Top shoulder collar piping, raglan seam trim & bottom jersey hem trim
   ctx.fillStyle = accentHex;
   ctx.fillRect(0, 0, width, 20);
-  ctx.globalAlpha = 0.8;
-  ctx.fillRect(0, height - 16, width, 16);
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, 22);
+  ctx.lineTo(width, 22);
+  ctx.stroke();
+
+  ctx.fillStyle = accentHex;
+  ctx.globalAlpha = 0.85;
+  ctx.fillRect(0, height - 18, width, 18);
   ctx.globalAlpha = 1;
 
   // --- BACK PANEL (u = 0.25 => x = 256) ---
   const backX = 256;
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+  ctx.fillRect(backX - 42, 24, 84, 20);
+  ctx.fillStyle = accentHex;
+  ctx.font = '800 13px "Barlow Condensed", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('NEL · PRO', backX, 34);
+
   if (isStar) {
     ctx.fillStyle = '#fbbf24';
-    ctx.font = '800 34px "Barlow Condensed", sans-serif';
+    ctx.font = '800 32px "Barlow Condensed", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('★ PRO ★', backX, 64);
+    ctx.fillText('★ LEGEND ★', backX, 74);
   }
   ctx.font = '900 220px "Barlow Condensed", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = 14;
-  ctx.strokeStyle = 'rgba(9, 15, 28, 0.65)';
+  ctx.lineWidth = 16;
+  ctx.strokeStyle = 'rgba(9, 15, 28, 0.72)';
   ctx.strokeText(numberStr, backX, 276);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = accentHex;
+  ctx.globalAlpha = 0.55;
+  ctx.strokeText(numberStr, backX, 276);
+  ctx.globalAlpha = 1;
   ctx.fillStyle = '#ffffff';
   ctx.fillText(numberStr, backX, 276);
 
   // Subtle fabric fold shadows under jersey number
   const backShadow = ctx.createLinearGradient(backX - 140, 390, backX + 140, 460);
   backShadow.addColorStop(0, 'rgba(0,0,0,0.08)');
-  backShadow.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  backShadow.addColorStop(0.5, 'rgba(255,255,255,0.06)');
   backShadow.addColorStop(1, 'rgba(0,0,0,0.08)');
   ctx.fillStyle = backShadow;
   ctx.fillRect(backX - 150, 380, 300, 90);
@@ -796,16 +1170,16 @@ export function createJerseyWrapTexture(
   // --- FRONT PANEL (u = 0.75 => x = 768) ---
   const frontX = 768;
 
-  // Tailored athletic V-neck collar cutout
+  // Tailored athletic V-neck collar cutout with inner piping
   ctx.fillStyle = accentHex;
   ctx.beginPath();
-  ctx.moveTo(frontX - 74, 0);
-  ctx.lineTo(frontX, 74);
-  ctx.lineTo(frontX + 74, 0);
+  ctx.moveTo(frontX - 78, 0);
+  ctx.lineTo(frontX, 78);
+  ctx.lineTo(frontX + 78, 0);
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.52)';
   ctx.beginPath();
   ctx.moveTo(frontX - 52, 0);
   ctx.lineTo(frontX, 48);
@@ -820,9 +1194,9 @@ export function createJerseyWrapTexture(
     8,
     frontX - 58,
     148,
-    66,
+    70,
   );
-  pecGrad.addColorStop(0, 'rgba(255,255,255,0.09)');
+  pecGrad.addColorStop(0, 'rgba(255,255,255,0.12)');
   pecGrad.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = pecGrad;
   ctx.fillRect(frontX - 150, 75, 160, 140);
@@ -833,54 +1207,70 @@ export function createJerseyWrapTexture(
     8,
     frontX + 58,
     148,
-    66,
+    70,
   );
-  pecGradR.addColorStop(0, 'rgba(255,255,255,0.09)');
+  pecGradR.addColorStop(0, 'rgba(255,255,255,0.12)');
   pecGradR.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = pecGradR;
   ctx.fillRect(frontX - 10, 75, 160, 140);
 
-  // Left chest club crest shield
+  // Left chest club crest shield with metallic bevel & star
   const cx = frontX + 82;
   const cy = 140;
-  ctx.fillStyle = '#0f172a';
+  const crestGrad = ctx.createLinearGradient(cx - 28, cy - 28, cx + 28, cy + 36);
+  crestGrad.addColorStop(0, '#1e293b');
+  crestGrad.addColorStop(0.5, '#0f172a');
+  crestGrad.addColorStop(1, '#020617');
+  ctx.fillStyle = crestGrad;
   ctx.beginPath();
   ctx.moveTo(cx - 28, cy - 26);
   ctx.lineTo(cx + 28, cy - 26);
   ctx.lineTo(cx + 24, cy + 12);
-  ctx.lineTo(cx, cy + 36);
+  ctx.lineTo(cx, cy + 38);
   ctx.lineTo(cx - 24, cy + 12);
   ctx.closePath();
   ctx.fill();
   ctx.strokeStyle = isStar ? '#fbbf24' : accentHex;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 4.5;
   ctx.stroke();
 
+  if (isStar) {
+    ctx.fillStyle = '#fde047';
+    ctx.font = '800 15px "Barlow Condensed", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('★', cx, cy - 36);
+  }
+
   ctx.fillStyle = isStar ? '#fbbf24' : '#f8fafc';
-  ctx.font = '800 20px "Barlow Condensed", sans-serif';
+  ctx.font = '900 20px "Barlow Condensed", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('FC', cx, cy + 2);
+  ctx.fillText('NEL', cx, cy + 2);
 
   // Small chest number on opposite breast
   ctx.fillStyle = '#ffffff';
   ctx.font = '800 46px "Barlow Condensed", sans-serif';
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
-  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.65)';
+  ctx.lineWidth = 6.5;
   ctx.strokeText(numberStr, frontX - 82, 142);
   ctx.fillText(numberStr, frontX - 82, 142);
 
-  // Center sponsor chest crest band
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.28)';
-  ctx.fillRect(frontX - 140, 224, 280, 62);
+  // Center sponsor chest crest band with metallic trim
+  const sponsorGrad = ctx.createLinearGradient(frontX - 140, 224, frontX + 140, 286);
+  sponsorGrad.addColorStop(0, 'rgba(15, 23, 42, 0.36)');
+  sponsorGrad.addColorStop(0.5, 'rgba(30, 41, 59, 0.24)');
+  sponsorGrad.addColorStop(1, 'rgba(15, 23, 42, 0.36)');
+  ctx.fillStyle = sponsorGrad;
+  ctx.fillRect(frontX - 142, 224, 284, 62);
   ctx.strokeStyle = accentHex;
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.68;
   ctx.lineWidth = 3;
-  ctx.strokeRect(frontX - 140, 224, 280, 62);
+  ctx.strokeRect(frontX - 142, 224, 284, 62);
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#ffffff';
   ctx.font = '800 32px "Barlow Condensed", sans-serif';
-  ctx.fillText('SÚT PHẠT PRO', frontX, 256);
+  ctx.fillText('NEL FOOTBALL', frontX, 256);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -920,9 +1310,25 @@ export function createPlayerFaceTexture(
   ctx.fillStyle = faceGlow;
   ctx.fillRect(0, 0, width, height);
 
+  // Subtle hairline temple feathering & natural scalp fade
+  const hairlineGrad = ctx.createLinearGradient(0, 62, 0, 146);
+  hairlineGrad.addColorStop(0, hairCss);
+  hairlineGrad.addColorStop(0.58, hairCss);
+  hairlineGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = hairlineGrad;
+  ctx.beginPath();
+  ctx.moveTo(118, 60);
+  ctx.lineTo(394, 60);
+  ctx.lineTo(380, 144);
+  ctx.quadraticCurveTo(256, 114, 132, 144);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
   // Forehead & cheekbone specular lift for sculpted athletic look
   const foreheadHighlight = ctx.createRadialGradient(256, 168, 4, 256, 174, 58);
-  foreheadHighlight.addColorStop(0, 'rgba(255, 246, 235, 0.18)');
+  foreheadHighlight.addColorStop(0, 'rgba(255, 246, 235, 0.22)');
   foreheadHighlight.addColorStop(1, 'rgba(255, 246, 235, 0)');
   ctx.fillStyle = foreheadHighlight;
   ctx.beginPath();
@@ -930,13 +1336,13 @@ export function createPlayerFaceTexture(
   ctx.fill();
 
   // Cheekbone warm tone + sculpted hollow contour below cheekbones
-  ctx.fillStyle = 'rgba(218, 96, 78, 0.14)';
+  ctx.fillStyle = 'rgba(218, 96, 78, 0.16)';
   ctx.beginPath();
   ctx.ellipse(192, 270, 26, 14, -0.18, 0, Math.PI * 2);
   ctx.ellipse(320, 270, 26, 14, 0.18, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(54, 24, 12, 0.12)';
+  ctx.fillStyle = 'rgba(54, 24, 12, 0.14)';
   ctx.beginPath();
   ctx.ellipse(180, 294, 22, 10, -0.35, 0, Math.PI * 2);
   ctx.ellipse(332, 294, 22, 10, 0.35, 0, Math.PI * 2);
@@ -945,7 +1351,7 @@ export function createPlayerFaceTexture(
   // Brow ridge & eye socket depth
   [214, 298].forEach((ex) => {
     const socket = ctx.createRadialGradient(ex, 226, 4, ex, 226, 32);
-    socket.addColorStop(0, 'rgba(48, 22, 11, 0.24)');
+    socket.addColorStop(0, 'rgba(48, 22, 11, 0.26)');
     socket.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = socket;
     ctx.beginPath();
@@ -994,8 +1400,8 @@ export function createPlayerFaceTexture(
 
     // Warm detailed iris gradient
     const irisGrad = ctx.createRadialGradient(ex, 232, 2, ex, 231, 8.2);
-    irisGrad.addColorStop(0, '#785032');
-    irisGrad.addColorStop(0.65, '#462c1c');
+    irisGrad.addColorStop(0, '#8c5d38');
+    irisGrad.addColorStop(0.62, '#4a2e1c');
     irisGrad.addColorStop(1, '#23160f');
     ctx.fillStyle = irisGrad;
     ctx.beginPath();
@@ -1014,9 +1420,9 @@ export function createPlayerFaceTexture(
     ctx.beginPath();
     ctx.arc(ex - 2.6, 228.8, 2.4, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
     ctx.beginPath();
-    ctx.arc(ex + 2.8, 233.5, 1.1, 0, Math.PI * 2);
+    ctx.arc(ex + 2.8, 233.5, 1.15, 0, Math.PI * 2);
     ctx.fill();
 
     // Sharp upper lash line & defined eyelid crease
@@ -1035,7 +1441,7 @@ export function createPlayerFaceTexture(
   });
 
   // Sculpted nose bridge highlight + shadow & subtle nostrils
-  ctx.strokeStyle = 'rgba(255, 240, 226, 0.22)';
+  ctx.strokeStyle = 'rgba(255, 240, 226, 0.24)';
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(256, 228);
@@ -1055,6 +1461,16 @@ export function createPlayerFaceTexture(
   ctx.ellipse(247, 277, 4.2, 2.4, -0.2, 0, Math.PI * 2);
   ctx.ellipse(265, 277, 4.2, 2.4, 0.2, 0, Math.PI * 2);
   ctx.fill();
+
+  // Philtrum & natural lip crease
+  ctx.strokeStyle = 'rgba(80, 36, 20, 0.22)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(252, 290);
+  ctx.lineTo(253, 309);
+  ctx.moveTo(260, 290);
+  ctx.lineTo(259, 309);
+  ctx.stroke();
 
   // Beard & sculpted masculine jawline contour
   if (hasBeard) {
@@ -1091,7 +1507,7 @@ export function createPlayerFaceTexture(
   }
 
   // Natural athletic mouth (defined Cupid's bow upper lip & soft lower lip)
-  ctx.fillStyle = 'rgba(136, 54, 48, 0.62)';
+  ctx.fillStyle = 'rgba(136, 54, 48, 0.65)';
   ctx.beginPath();
   ctx.moveTo(229, 320);
   ctx.quadraticCurveTo(243, 313, 256, 317);
@@ -1099,7 +1515,7 @@ export function createPlayerFaceTexture(
   ctx.quadraticCurveTo(256, 325, 229, 320);
   ctx.fill();
 
-  ctx.fillStyle = 'rgba(188, 96, 86, 0.48)';
+  ctx.fillStyle = 'rgba(188, 96, 86, 0.52)';
   ctx.beginPath();
   ctx.moveTo(234, 323);
   ctx.quadraticCurveTo(256, 337, 278, 323);
@@ -1107,7 +1523,7 @@ export function createPlayerFaceTexture(
   ctx.fill();
 
   // Subtle chin highlight
-  ctx.fillStyle = 'rgba(255, 240, 225, 0.14)';
+  ctx.fillStyle = 'rgba(255, 240, 225, 0.16)';
   ctx.beginPath();
   ctx.ellipse(256, 352, 16, 8, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -1219,7 +1635,7 @@ export function createStadiumJumbotronTexture(
 
   ctx.fillStyle = '#f8fafc';
   ctx.font = '900 76px "Barlow Condensed", sans-serif';
-  ctx.fillText('SÚT PHẠT FC 3D · ARENA', width / 2, 146);
+  ctx.fillText('NEL FOOTBALL · FC ARENA', width / 2, 146);
 
   ctx.fillStyle = '#fbbf24';
   ctx.font = '700 24px "Barlow Condensed", sans-serif';
@@ -1260,6 +1676,29 @@ export function createSkyDomeTexture(): THREE.CanvasTexture {
     ctx.arc(sx, sy, radius, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export function createWinterSkyDomeTexture(): THREE.CanvasTexture {
+  const width = 512;
+  const height = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, height);
+  grad.addColorStop(0, '#27527d');
+  grad.addColorStop(0.42, '#4a7eb0');
+  grad.addColorStop(0.72, '#78aad6');
+  grad.addColorStop(0.88, '#b8d7f0');
+  grad.addColorStop(1, '#5882a8');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

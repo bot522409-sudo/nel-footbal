@@ -10,23 +10,33 @@ export type CardRarity =
   | 'tots'
   | 'prime_icon'
   | 'utoty'
+  | 'winter'
   | 'goat'
   | 'immortal'
   | 'divine'
-  | 'supreme';
+  | 'supreme'
+  | 'admin_infinity';
 
 export type PlayerPosition = 'GK' | 'CB' | 'CM' | 'LW' | 'RW' | 'ST';
 
 export type FcPackId =
   | 'silver_pack'
   | 'gold_pack'
+  | 'vietnam_star_pack'
   | 'icon_pack'
+  | 'gk_wall_pack'
+  | 'wonderkids_pack'
+  | 'winter_frost_pack'
+  | 'curve_masters_pack'
   | 'tots_pack'
+  | 'mega_party_pack'
   | 'prime_icon_pack'
+  | 'winter_blizzard_pack'
   | 'utoty_pack'
   | 'goat_pack'
   | 'divine_150_pack'
-  | 'admin_200_pack';
+  | 'admin_200_pack'
+  | 'admin_infinity_pack';
 
 export interface FcPlayerStats {
   pac: number;
@@ -42,6 +52,8 @@ export interface FcPlayerCard {
   name: string;
   shortName: string;
   ovr: number;
+  /** True for Admin Infinity (∞) legends; numeric ovr stays <= 200 for cloud save compatibility */
+  isInfinity?: boolean;
   position: PlayerPosition;
   rarity: CardRarity;
   numberStr: string;
@@ -68,6 +80,10 @@ export interface FcPackTierOdds {
   maxOvr: number;
   chancePct: number;
   isRare130Plus?: boolean;
+  rarities?: CardRarity[];
+  positions?: PlayerPosition[];
+  nations?: string[];
+  kickerIds?: KickerId[];
 }
 
 export interface FcPackDef {
@@ -88,11 +104,14 @@ export interface FcPackDef {
 
 export type MissionPeriod = 'daily' | 'weekly';
 
+export type MissionDifficulty = 'easy' | 'medium' | 'hard' | 'extreme';
+
 export type MissionMetric =
   | 'goals'
   | 'top_corner'
   | 'matches_won'
   | 'match_3d_won'
+  | 'hard_matches_won'
   | 'gk_saves'
   | 'header_or_penalty'
   | 'packs_opened';
@@ -100,6 +119,7 @@ export type MissionMetric =
 export interface FcMissionDef {
   id: string;
   period: MissionPeriod;
+  difficulty: MissionDifficulty;
   metric: MissionMetric;
   target: number;
   rewardCoins: number;
@@ -134,6 +154,404 @@ export interface FcClubState {
 export const FC_CLUB_STORAGE_KEY = 'sut_phat_3d_fc_club_v1';
 
 export const FC_PLAYERS: Record<string, FcPlayerCard> = {
+  // ---- ADMIN INFINITY LEGENDS (OVR ∞ · Stats ∞) ----
+  admin_inf_messi: {
+    id: 'admin_inf_messi',
+    name: 'Lionel Messi ADMIN ∞',
+    shortName: 'Messi ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'RW',
+    rarity: 'admin_infinity',
+    numberStr: '10',
+    foot: 'left',
+    nation: 'ARG',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#1e1b4b',
+    shortsColor: 0x090d16,
+    skinColor: 0xdfa682,
+    hairColor: 0x261d17,
+    bootColor: 0x38bdf8,
+    hasBeard: true,
+    kickerId: 'messi',
+  },
+  admin_inf_ronaldo: {
+    id: 'admin_inf_ronaldo',
+    name: 'Cristiano Ronaldo ADMIN ∞',
+    shortName: 'CR7 ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'ST',
+    rarity: 'admin_infinity',
+    numberStr: '7',
+    foot: 'right',
+    nation: 'POR',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#311042',
+    shortsColor: 0x090d16,
+    skinColor: 0xd6966c,
+    hairColor: 0x171412,
+    bootColor: 0xfacc15,
+    kickerId: 'ronaldo',
+  },
+  admin_inf_pele: {
+    id: 'admin_inf_pele',
+    name: 'Pelé Huyền Thoại ADMIN ∞',
+    shortName: 'Pelé ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'ST',
+    rarity: 'admin_infinity',
+    numberStr: '10',
+    foot: 'right',
+    nation: 'BRA',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#ca8a04',
+    shortsColor: 0x1e3a8a,
+    skinColor: 0x8d583b,
+    hairColor: 0x141414,
+    bootColor: 0xfef08a,
+    kickerId: 'ronaldinho',
+  },
+  admin_inf_r9: {
+    id: 'admin_inf_r9',
+    name: 'Ronaldo R9 Người Ngoài Hành Tinh ∞',
+    shortName: 'R9 ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'ST',
+    rarity: 'admin_infinity',
+    numberStr: '9',
+    foot: 'right',
+    nation: 'BRA',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#0284c7',
+    shortsColor: 0x0f172a,
+    skinColor: 0xa86b46,
+    hairColor: 0x171412,
+    bootColor: 0xfbbf24,
+    kickerId: 'ronaldo',
+  },
+  admin_inf_zidane: {
+    id: 'admin_inf_zidane',
+    name: 'Zinedine Zidane ADMIN ∞',
+    shortName: 'Zidane ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'CM',
+    rarity: 'admin_infinity',
+    numberStr: '5',
+    foot: 'right',
+    nation: 'FRA',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#312e81',
+    shortsColor: 0xf8fafc,
+    skinColor: 0xe3b18d,
+    hairColor: 0x3b2f2f,
+    bootColor: 0xfacc15,
+    kickerId: 'zidane',
+  },
+  admin_inf_mbappe: {
+    id: 'admin_inf_mbappe',
+    name: 'Kylian Mbappé ADMIN ∞',
+    shortName: 'Mbappé ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'LW',
+    rarity: 'admin_infinity',
+    numberStr: '9',
+    foot: 'right',
+    nation: 'FRA',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#0f172a',
+    shortsColor: 0x0f172a,
+    skinColor: 0x8d583b,
+    hairColor: 0x141414,
+    bootColor: 0x22d3ee,
+    kickerId: 'mbappe',
+  },
+  admin_inf_maldini: {
+    id: 'admin_inf_maldini',
+    name: 'Paolo Maldini ADMIN ∞',
+    shortName: 'Maldini ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'CB',
+    rarity: 'admin_infinity',
+    numberStr: '3',
+    foot: 'left',
+    nation: 'ITA',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#7f1d1d',
+    shortsColor: 0x090d16,
+    skinColor: 0xe3b18d,
+    hairColor: 0x1e1611,
+    bootColor: 0x38bdf8,
+    kickerId: 'pirlo',
+  },
+  admin_inf_yashin: {
+    id: 'admin_inf_yashin',
+    name: 'Lev Yashin Nhện Đen ADMIN ∞',
+    shortName: 'Yashin ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'GK',
+    rarity: 'admin_infinity',
+    numberStr: '1',
+    foot: 'right',
+    nation: 'RUS',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#090d16',
+    shortsColor: 0x090d16,
+    skinColor: 0xe7b692,
+    hairColor: 0x1f1916,
+    bootColor: 0xfacc15,
+    gkId: 'yashin',
+  },
+  admin_inf_quang_hai: {
+    id: 'admin_inf_quang_hai',
+    name: 'Nguyễn Quang Hải ADMIN ∞',
+    shortName: 'Q. Hải ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'RW',
+    rarity: 'admin_infinity',
+    numberStr: '19',
+    foot: 'left',
+    nation: 'VIE',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#be123c',
+    shortsColor: 0x991b1b,
+    skinColor: 0xe0aa86,
+    hairColor: 0x171412,
+    bootColor: 0xfacc15,
+    kickerId: 'quang_hai',
+  },
+  admin_inf_xuan_son: {
+    id: 'admin_inf_xuan_son',
+    name: 'Nguyễn Xuân Son ADMIN ∞',
+    shortName: 'Xuân Son ∞',
+    ovr: 200,
+    isInfinity: true,
+    position: 'ST',
+    rarity: 'admin_infinity',
+    numberStr: '12',
+    foot: 'right',
+    nation: 'VIE',
+    club: 'ADM∞',
+    stats: { pac: 999, sho: 999, pas: 999, dri: 999, def: 999, phy: 999 },
+    jerseyColor: '#b91c1c',
+    shortsColor: 0xb91c1c,
+    skinColor: 0xc98a5f,
+    hairColor: 0x171412,
+    bootColor: 0x38bdf8,
+    kickerId: 'ronaldo',
+  },
+
+  // ---- WINTER EVENT FROST LEGENDS (136 - 168 OVR) ----
+  winter_messi_168: {
+    id: 'winter_messi_168',
+    name: 'Lionel Messi WINTER FROST',
+    shortName: 'Messi ❄168',
+    ovr: 168,
+    position: 'RW',
+    rarity: 'winter',
+    numberStr: '10',
+    foot: 'left',
+    nation: 'ARG',
+    club: 'WNTR',
+    stats: { pac: 164, sho: 172, pas: 175, dri: 178, def: 96, phy: 138 },
+    jerseyColor: '#e0f2fe',
+    shortsColor: 0x0c4a6e,
+    skinColor: 0xdfa682,
+    hairColor: 0x261d17,
+    bootColor: 0x38bdf8,
+    hasBeard: true,
+    kickerId: 'messi',
+  },
+  winter_ronaldo_168: {
+    id: 'winter_ronaldo_168',
+    name: 'Cristiano Ronaldo BLIZZARD',
+    shortName: 'CR7 ❄168',
+    ovr: 168,
+    position: 'ST',
+    rarity: 'winter',
+    numberStr: '7',
+    foot: 'right',
+    nation: 'POR',
+    club: 'WNTR',
+    stats: { pac: 170, sho: 178, pas: 156, dri: 168, def: 92, phy: 170 },
+    jerseyColor: '#0284c7',
+    shortsColor: 0xf8fafc,
+    skinColor: 0xd6966c,
+    hairColor: 0x171412,
+    bootColor: 0xe0f2fe,
+    kickerId: 'ronaldo',
+  },
+  winter_mbappe_156: {
+    id: 'winter_mbappe_156',
+    name: 'Kylian Mbappé WINTER ICE',
+    shortName: 'Mbappé ❄156',
+    ovr: 156,
+    position: 'LW',
+    rarity: 'winter',
+    numberStr: '9',
+    foot: 'right',
+    nation: 'FRA',
+    club: 'WNTR',
+    stats: { pac: 174, sho: 158, pas: 146, dri: 162, def: 82, phy: 144 },
+    jerseyColor: '#bae6fd',
+    shortsColor: 0x0f172a,
+    skinColor: 0x8d583b,
+    hairColor: 0x141414,
+    bootColor: 0x22d3ee,
+    kickerId: 'mbappe',
+  },
+  winter_haaland_154: {
+    id: 'winter_haaland_154',
+    name: 'Erling Haaland NORDIC FROST',
+    shortName: 'Haaland ❄154',
+    ovr: 154,
+    position: 'ST',
+    rarity: 'winter',
+    numberStr: '9',
+    foot: 'left',
+    nation: 'NOR',
+    club: 'WNTR',
+    stats: { pac: 156, sho: 164, pas: 132, dri: 144, def: 96, phy: 168 },
+    jerseyColor: '#0369a1',
+    shortsColor: 0xe0f2fe,
+    skinColor: 0xf3cbb1,
+    hairColor: 0xfbbf24,
+    bootColor: 0x38bdf8,
+    kickerId: 'haaland',
+  },
+  winter_bellingham_148: {
+    id: 'winter_bellingham_148',
+    name: 'Jude Bellingham SNOW KING',
+    shortName: 'Jude ❄148',
+    ovr: 148,
+    position: 'CM',
+    rarity: 'winter',
+    numberStr: '5',
+    foot: 'right',
+    nation: 'ENG',
+    club: 'WNTR',
+    stats: { pac: 146, sho: 148, pas: 152, dri: 154, def: 138, phy: 150 },
+    jerseyColor: '#f8fafc',
+    shortsColor: 0x0284c7,
+    skinColor: 0xc98a5f,
+    hairColor: 0x141414,
+    bootColor: 0x7dd3fc,
+    kickerId: 'bellingham',
+  },
+  winter_courtois_146: {
+    id: 'winter_courtois_146',
+    name: 'Thibaut Courtois ZERO KELVIN',
+    shortName: 'Courtois ❄146',
+    ovr: 146,
+    position: 'GK',
+    rarity: 'winter',
+    numberStr: '1',
+    foot: 'left',
+    nation: 'BEL',
+    club: 'WNTR',
+    stats: { pac: 140, sho: 142, pas: 138, dri: 148, def: 112, phy: 154 },
+    jerseyColor: '#06b6d4',
+    shortsColor: 0x0f172a,
+    skinColor: 0xe7b692,
+    hairColor: 0x2b211a,
+    bootColor: 0xe0f2fe,
+    hasBeard: true,
+    gkId: 'courtois',
+  },
+  winter_van_dijk_145: {
+    id: 'winter_van_dijk_145',
+    name: 'Virgil van Dijk ICE WALL',
+    shortName: 'VVD ❄145',
+    ovr: 145,
+    position: 'CB',
+    rarity: 'winter',
+    numberStr: '4',
+    foot: 'right',
+    nation: 'NED',
+    club: 'WNTR',
+    stats: { pac: 140, sho: 114, pas: 138, dri: 132, def: 156, phy: 158 },
+    jerseyColor: '#0891b2',
+    shortsColor: 0xf8fafc,
+    skinColor: 0xc6865c,
+    hairColor: 0x171412,
+    bootColor: 0x38bdf8,
+    hasBeard: true,
+    kickerId: 'kane',
+  },
+  winter_yamal_142: {
+    id: 'winter_yamal_142',
+    name: 'Lamine Yamal GLACIER',
+    shortName: 'Yamal ❄142',
+    ovr: 142,
+    position: 'RW',
+    rarity: 'winter',
+    numberStr: '19',
+    foot: 'left',
+    nation: 'ESP',
+    club: 'WNTR',
+    stats: { pac: 148, sho: 139, pas: 146, dri: 154, def: 74, phy: 118 },
+    jerseyColor: '#7dd3fc',
+    shortsColor: 0x0f172a,
+    skinColor: 0xc98a5f,
+    hairColor: 0x141414,
+    bootColor: 0xf8fafc,
+    kickerId: 'yamal',
+  },
+  winter_quang_hai_138: {
+    id: 'winter_quang_hai_138',
+    name: 'Nguyễn Quang Hải TUYẾT TRẮNG',
+    shortName: 'Q. Hải ❄138',
+    ovr: 138,
+    position: 'RW',
+    rarity: 'winter',
+    numberStr: '19',
+    foot: 'left',
+    nation: 'VIE',
+    club: 'WNTR',
+    stats: { pac: 138, sho: 144, pas: 148, dri: 145, def: 92, phy: 118 },
+    jerseyColor: '#dc2626',
+    shortsColor: 0xf8fafc,
+    skinColor: 0xe0aa86,
+    hairColor: 0x171412,
+    bootColor: 0x38bdf8,
+    kickerId: 'quang_hai',
+  },
+  winter_xuan_son_136: {
+    id: 'winter_xuan_son_136',
+    name: 'Nguyễn Xuân Son BÃO TUYẾT',
+    shortName: 'Xuân Son ❄136',
+    ovr: 136,
+    position: 'ST',
+    rarity: 'winter',
+    numberStr: '12',
+    foot: 'right',
+    nation: 'VIE',
+    club: 'WNTR',
+    stats: { pac: 139, sho: 144, pas: 128, dri: 136, def: 86, phy: 148 },
+    jerseyColor: '#da251d',
+    shortsColor: 0xf8fafc,
+    skinColor: 0xc98a5f,
+    hairColor: 0x171412,
+    bootColor: 0xe0f2fe,
+    kickerId: 'ronaldo',
+  },
+
   // ---- SUPREME TỐI THƯỢNG 200 LEGENDS (188 - 200 OVR) ----
   supreme_messi_200: {
     id: 'supreme_messi_200',
@@ -3360,6 +3778,25 @@ export const FC_PACKS: FcPackDef[] = [
     ],
   },
   {
+    id: 'vietnam_star_pack',
+    nameVi: 'Gói Sao Vàng Việt Nam',
+    nameEn: 'Vietnam Golden Star Pack',
+    descVi: 'Mở 2 thẻ ĐT Việt Nam (Quang Hải, Xuân Son, Hoàng Đức, Văn Lâm... cơ hội nổ Tuyết Trắng 138 & ∞!).',
+    descEn: '2 Vietnam national stars (Quang Hải, Xuân Son, Hoàng Đức... up to Winter 138 & ∞!).',
+    price: 2500,
+    cardsCount: 2,
+    minOvr: 77,
+    maxOvr: 200,
+    accentColor: '#ef4444',
+    badgeText: 'VIỆT NAM',
+    tierOdds: [
+      { labelVi: 'ĐT Việt Nam 77–86', labelEn: 'VIE Stars 77–86', minOvr: 77, maxOvr: 86, chancePct: 68, nations: ['VIE'] },
+      { labelVi: 'TOTS Q. Hải 98', labelEn: 'TOTS Q. Hải 98', minOvr: 97, maxOvr: 105, chancePct: 24, nations: ['VIE'] },
+      { labelVi: 'Winter VIE 136–138', labelEn: 'Winter VIE 136–138', minOvr: 135, maxOvr: 145, chancePct: 7.5, rarities: ['winter'], nations: ['VIE'], isRare130Plus: true },
+      { labelVi: 'Admin VIE ∞', labelEn: 'Admin VIE ∞', minOvr: 200, maxOvr: 200, chancePct: 0.5, rarities: ['admin_infinity'], nations: ['VIE'], isRare130Plus: true },
+    ],
+  },
+  {
     id: 'icon_pack',
     nameVi: 'Gói Siêu Sao & ICON',
     nameEn: 'ICON & TOTY Pack',
@@ -3375,6 +3812,79 @@ export const FC_PACKS: FcPackDef[] = [
       { labelVi: 'Vàng 86–89', labelEn: 'Gold 86–89', minOvr: 86, maxOvr: 89, chancePct: 55 },
       { labelVi: 'ICON 90–96', labelEn: 'ICON 90–96', minOvr: 90, maxOvr: 96, chancePct: 40 },
       { labelVi: 'TOTS 97–102', labelEn: 'TOTS 97–102', minOvr: 97, maxOvr: 102, chancePct: 5 },
+    ],
+  },
+  {
+    id: 'gk_wall_pack',
+    nameVi: 'Gói Bức Tường Thủ Môn',
+    nameEn: 'GK Wall Legends Pack',
+    descVi: '100% mở ra Thủ Môn (GK): Casillas, Courtois, Buffon, Yashin & Winter Zero Kelvin 146!',
+    descEn: '100% Goalkeepers (GK): Casillas, Courtois, Buffon, Yashin & Winter 146!',
+    price: 6000,
+    cardsCount: 2,
+    minOvr: 77,
+    maxOvr: 200,
+    accentColor: '#10b981',
+    badgeText: 'GK WALL',
+    tierOdds: [
+      { labelVi: 'GK Vàng/Bạc 77–89', labelEn: 'GK 77–89', minOvr: 77, maxOvr: 89, chancePct: 45, positions: ['GK'] },
+      { labelVi: 'GK ICON/Prime 90–118', labelEn: 'GK ICON 90–118', minOvr: 90, maxOvr: 122, chancePct: 47, positions: ['GK'] },
+      { labelVi: 'GK Hiếm 130–198', labelEn: 'GK Rare 130–198', minOvr: 130, maxOvr: 198, chancePct: 7.5, positions: ['GK'], isRare130Plus: true },
+      { labelVi: 'Yashin ADMIN ∞', labelEn: 'Yashin ADMIN ∞', minOvr: 200, maxOvr: 200, chancePct: 0.5, positions: ['GK'], rarities: ['admin_infinity'], isRare130Plus: true },
+    ],
+  },
+  {
+    id: 'wonderkids_pack',
+    nameVi: 'Gói Sao Trẻ Tương Lai',
+    nameEn: 'Future Wonderkids Pack',
+    descVi: 'Mở 3 thẻ tài năng trẻ: Yamal, Bellingham, Mbappé, Haaland, Vinicius, Pedri, Musiala!',
+    descEn: '3 Wonderkid cards: Yamal, Bellingham, Mbappé, Haaland, Vini Jr, Pedri, Musiala!',
+    price: 7500,
+    cardsCount: 3,
+    minOvr: 85,
+    maxOvr: 160,
+    accentColor: '#a855f7',
+    badgeText: 'WONDERKID',
+    tierOdds: [
+      { labelVi: 'Sao Trẻ 85–89', labelEn: 'Wonderkids 85–89', minOvr: 85, maxOvr: 89, chancePct: 50, kickerIds: ['yamal', 'bellingham', 'mbappe', 'haaland', 'vinicius'] },
+      { labelVi: 'TOTS/UTOTY 98–125', labelEn: 'TOTS/UTOTY 98–125', minOvr: 98, maxOvr: 125, chancePct: 43, kickerIds: ['yamal', 'bellingham', 'mbappe', 'haaland', 'vinicius'] },
+      { labelVi: 'Winter/Siêu Sao 130–160', labelEn: 'Winter/Elite 130–160', minOvr: 130, maxOvr: 160, chancePct: 7, kickerIds: ['yamal', 'bellingham', 'mbappe', 'haaland', 'vinicius'], isRare130Plus: true },
+    ],
+  },
+  {
+    id: 'winter_frost_pack',
+    nameVi: 'Gói Băng Giá Mùa Đông ❄',
+    nameEn: 'Winter Frost Event Pack ❄',
+    descVi: 'Gói Sự Kiện Winter! Mở 2 thẻ cơ hội cực cao ra dàn siêu sao Băng Giá OVR 136–168!',
+    descEn: 'Winter Event Pack! 2 cards with boosted odds for Frost Legends (136–168 OVR)!',
+    price: 8500,
+    cardsCount: 2,
+    minOvr: 90,
+    maxOvr: 168,
+    accentColor: '#38bdf8',
+    badgeText: 'WINTER ❄',
+    tierOdds: [
+      { labelVi: 'UTOTY/Prime 95–122', labelEn: 'UTOTY/Prime 95–122', minOvr: 95, maxOvr: 122, chancePct: 62 },
+      { labelVi: 'Winter ❄ 136–148', labelEn: 'Winter ❄ 136–148', minOvr: 136, maxOvr: 148, chancePct: 30, rarities: ['winter'], isRare130Plus: true },
+      { labelVi: 'Winter ❄ 154–168', labelEn: 'Winter ❄ 154–168', minOvr: 154, maxOvr: 168, chancePct: 8, rarities: ['winter'], isRare130Plus: true },
+    ],
+  },
+  {
+    id: 'curve_masters_pack',
+    nameVi: 'Gói Vua Sút Xoáy & Phạt',
+    nameEn: 'Curve & Free-Kick Masters',
+    descVi: 'Mở 2 thẻ chuyên gia sút xoáy cong như chuối: Beckham, Juninho, Pirlo, Messi, R. Carlos, Quang Hải!',
+    descEn: '2 Dead-ball & Curve Legends: Beckham, Juninho, Pirlo, Messi, R. Carlos, Q. Hải!',
+    price: 9900,
+    cardsCount: 2,
+    minOvr: 88,
+    maxOvr: 168,
+    accentColor: '#06b6d4',
+    badgeText: 'XOÁY PRO',
+    tierOdds: [
+      { labelVi: 'Chuyên Gia 88–112', labelEn: 'Masters 88–112', minOvr: 88, maxOvr: 112, chancePct: 68, kickerIds: ['beckham', 'juninho', 'pirlo', 'roberto_carlos', 'messi', 'quang_hai'] },
+      { labelVi: 'Siêu Phẩm 115–145', labelEn: 'Elite 115–145', minOvr: 115, maxOvr: 145, chancePct: 28, kickerIds: ['beckham', 'juninho', 'pirlo', 'roberto_carlos', 'messi', 'quang_hai'], isRare130Plus: true },
+      { labelVi: 'Thần Thánh 148–168', labelEn: 'Mythic 148–168', minOvr: 148, maxOvr: 168, chancePct: 4, kickerIds: ['beckham', 'juninho', 'pirlo', 'roberto_carlos', 'messi', 'quang_hai'], isRare130Plus: true },
     ],
   },
   {
@@ -3396,6 +3906,24 @@ export const FC_PACKS: FcPackDef[] = [
     ],
   },
   {
+    id: 'mega_party_pack',
+    nameVi: 'Đại Tiệc Mở Pack 6 Thẻ',
+    nameEn: 'Mega 6-Card Party Pack',
+    descVi: 'Mở một phát 6 thẻ cầu thủ cực đã! Phù hợp cày đội hình & săn Winter/G.O.A.T!',
+    descEn: 'Open 6 player cards in one blast! Huge fun for squad building & rare pulls!',
+    price: 28000,
+    cardsCount: 6,
+    minOvr: 85,
+    maxOvr: 168,
+    accentColor: '#ec4899',
+    badgeText: '6 THẺ 🎉',
+    tierOdds: [
+      { labelVi: 'Vàng/ICON 85–96', labelEn: 'Gold/ICON 85–96', minOvr: 85, maxOvr: 96, chancePct: 45 },
+      { labelVi: 'TOTS/Prime/UTOTY 97–122', labelEn: 'TOTS/UTOTY 97–122', minOvr: 97, maxOvr: 122, chancePct: 47 },
+      { labelVi: 'Winter/GOAT 130–168', labelEn: 'Winter/GOAT 130–168', minOvr: 130, maxOvr: 168, chancePct: 8, isRare130Plus: true },
+    ],
+  },
+  {
     id: 'prime_icon_pack',
     nameVi: 'Gói Prime ICON Vương Giả',
     nameEn: 'Prime ICON Royal Pack',
@@ -3411,6 +3939,24 @@ export const FC_PACKS: FcPackDef[] = [
       { labelVi: 'TOTS 97–102', labelEn: 'TOTS 97–102', minOvr: 97, maxOvr: 102, chancePct: 52 },
       { labelVi: 'Prime 105–112', labelEn: 'Prime 105–112', minOvr: 105, maxOvr: 112, chancePct: 46 },
       { labelVi: '130–135', labelEn: '130–135', minOvr: 130, maxOvr: 135, chancePct: 2, isRare130Plus: true },
+    ],
+  },
+  {
+    id: 'winter_blizzard_pack',
+    nameVi: 'Gói Bão Tuyết Siêu Cấp ❄168',
+    nameEn: 'Winter Blizzard Super Pack ❄168',
+    descVi: 'Mở 3 thẻ Sự Kiện Mùa Đông 100% có Winter 136–168 hoặc UTOTY/Tối Thượng!',
+    descEn: '3 Winter Event cards! Guaranteed high Winter 136–168 & chance at Messi/CR7 ❄168!',
+    price: 45000,
+    cardsCount: 3,
+    minOvr: 116,
+    maxOvr: 200,
+    accentColor: '#0ea5e9',
+    badgeText: 'WINTER 168',
+    tierOdds: [
+      { labelVi: 'Winter ❄ 136–148', labelEn: 'Winter ❄ 136–148', minOvr: 136, maxOvr: 148, chancePct: 68, rarities: ['winter'], isRare130Plus: true },
+      { labelVi: 'Winter ❄ 154–168', labelEn: 'Winter ❄ 154–168', minOvr: 154, maxOvr: 168, chancePct: 30, rarities: ['winter'], isRare130Plus: true },
+      { labelVi: 'Tối Thượng / Admin ∞', labelEn: 'Supreme / Admin ∞', minOvr: 195, maxOvr: 200, chancePct: 2, rarities: ['supreme', 'admin_infinity'], isRare130Plus: true },
     ],
   },
   {
@@ -3455,7 +4001,7 @@ export const FC_PACKS: FcPackDef[] = [
     id: 'divine_150_pack',
     nameVi: 'Gói Chí Tôn Thần Thoại 150',
     nameEn: 'Divine 150 Mythic Pack',
-    descVi: 'Gói đắt nhất 350.000 Xu! 5% tổng tỉ lệ ra 130+ (0.5% nổ 150).',
+    descVi: 'Gói cao cấp 350.000 Xu! 5% tổng tỉ lệ ra 130+ (0.5% nổ 150).',
     descEn: '350,000 Coins! 5% total chance for 130+ (0.5% for 148–150).',
     price: 350000,
     cardsCount: 3,
@@ -3484,8 +4030,25 @@ export const FC_PACKS: FcPackDef[] = [
     badgeText: 'MAX 200',
     adminOnly: false,
     tierOdds: [
-      { labelVi: 'Tối Thượng 188–197', labelEn: 'Supreme 188–197', minOvr: 188, maxOvr: 197, chancePct: 68 },
-      { labelVi: 'Tối Thượng MAX 200', labelEn: 'Supreme MAX 200', minOvr: 198, maxOvr: 200, chancePct: 32, isRare130Plus: true },
+      { labelVi: 'Tối Thượng 188–197', labelEn: 'Supreme 188–197', minOvr: 188, maxOvr: 197, chancePct: 68, rarities: ['supreme'] },
+      { labelVi: 'Tối Thượng MAX 200', labelEn: 'Supreme MAX 200', minOvr: 198, maxOvr: 200, chancePct: 32, rarities: ['supreme'], isRare130Plus: true },
+    ],
+  },
+  {
+    id: 'admin_infinity_pack',
+    nameVi: 'Gói Admin Vô Cực ∞',
+    nameEn: 'Admin Infinity ∞ Pack',
+    descVi: '100% nổ thẻ ADMIN INFINITY (OVR ∞ · Toàn bộ chỉ số ∞)! Miễn phí cho Admin hoặc 120.000.000 Xu!',
+    descEn: '100% ADMIN INFINITY cards (OVR ∞ · All stats ∞)! Free in Admin Mode or 120M Coins!',
+    price: 120_000_000,
+    cardsCount: 3,
+    minOvr: 200,
+    maxOvr: 200,
+    accentColor: '#22d3ee',
+    badgeText: 'OVR ∞',
+    adminOnly: true,
+    tierOdds: [
+      { labelVi: 'Admin Vô Cực ∞', labelEn: 'Admin Infinity ∞', minOvr: 200, maxOvr: 200, chancePct: 100, rarities: ['admin_infinity'], isRare130Plus: true },
     ],
   },
 ];
@@ -3509,22 +4072,48 @@ export function getIsoWeekKey(now = new Date()): string {
 export const FC_MISSIONS: FcMissionDef[] = [
   // ---- DAILY MISSIONS ----
   {
+    id: 'd_open_pack_1',
+    period: 'daily',
+    difficulty: 'easy',
+    metric: 'packs_opened',
+    target: 1,
+    rewardCoins: 75_000,
+    titleVi: 'Đập Hộp Mỗi Ngày',
+    titleEn: 'Daily Pack Opener',
+    descVi: 'Mở 1 Pack thẻ cầu thủ bất kỳ trong Cửa Hàng',
+    descEn: 'Open 1 player card pack in the Store',
+  },
+  {
     id: 'd_goals_10',
     period: 'daily',
+    difficulty: 'medium',
     metric: 'goals',
     target: 10,
-    rewardCoins: 1200,
+    rewardCoins: 105_000,
     titleVi: 'Chân Sút Hằng Ngày',
     titleEn: 'Daily Striker',
     descVi: 'Ghi 10 bàn thắng ở bất kỳ chế độ nào',
     descEn: 'Score 10 goals in any mode',
   },
   {
+    id: 'd_gk_save_3',
+    period: 'daily',
+    difficulty: 'medium',
+    metric: 'gk_saves',
+    target: 3,
+    rewardCoins: 125_000,
+    titleVi: 'Đôi Tay Vàng GK',
+    titleEn: 'Golden Gloves',
+    descVi: 'Trực tiếp làm thủ môn cản phá thành công 3 cú sút',
+    descEn: 'Make 3 saves while playing as Goalkeeper',
+  },
+  {
     id: 'd_top_corner_3',
     period: 'daily',
+    difficulty: 'hard',
     metric: 'top_corner',
     target: 3,
-    rewardCoins: 1800,
+    rewardCoins: 165_000,
     titleVi: 'Thiện Xạ Góc A',
     titleEn: 'Top-Corner Sniper',
     descVi: 'Đá vào Góc A hoặc ghi Siêu Phẩm 3D 3 lần',
@@ -3533,44 +4122,60 @@ export const FC_MISSIONS: FcMissionDef[] = [
   {
     id: 'd_match_win_2',
     period: 'daily',
+    difficulty: 'hard',
     metric: 'matches_won',
     target: 2,
-    rewardCoins: 2000,
+    rewardCoins: 195_000,
     titleVi: 'Nhà Vô Địch Trong Ngày',
     titleEn: 'Daily Match Winner',
     descVi: 'Giành chiến thắng 2 trận (Đấu 3D / Đấu Bot / Penalty)',
     descEn: 'Win 2 matches (3D Match / Vs Bot / Penalty)',
   },
   {
-    id: 'd_gk_save_3',
+    id: 'd_pro_win_1',
     period: 'daily',
-    metric: 'gk_saves',
-    target: 3,
-    rewardCoins: 1200,
-    titleVi: 'Đôi Tay Vàng GK',
-    titleEn: 'Golden Gloves',
-    descVi: 'Trực tiếp làm thủ môn cản phá thành công 3 cú sút',
-    descEn: 'Make 3 saves while playing as Goalkeeper',
-  },
-  {
-    id: 'd_open_pack_1',
-    period: 'daily',
-    metric: 'packs_opened',
+    difficulty: 'extreme',
+    metric: 'hard_matches_won',
     target: 1,
-    rewardCoins: 800,
-    titleVi: 'Đập Hộp Mỗi Ngày',
-    titleEn: 'Daily Pack Opener',
-    descVi: 'Mở 1 Pack thẻ cầu thủ bất kỳ trong Cửa Hàng',
-    descEn: 'Open 1 player card pack in the Store',
+    rewardCoins: 250_000,
+    titleVi: 'Chinh Phục Đỉnh Cao',
+    titleEn: 'High-Difficulty Conqueror',
+    descVi: 'Thắng 1 trận ở độ khó Pro, Siêu Khó hoặc Bất Khả Thi',
+    descEn: 'Win 1 match on Pro, Extreme, or Impossible difficulty',
   },
 
   // ---- WEEKLY MISSIONS ----
   {
+    id: 'w_open_packs_5',
+    period: 'weekly',
+    difficulty: 'medium',
+    metric: 'packs_opened',
+    target: 5,
+    rewardCoins: 180_000,
+    titleVi: 'Ông Trùm Sưu Tầm Thẻ',
+    titleEn: 'Ultimate Collector',
+    descVi: 'Mở 5 Pack thẻ cầu thủ trong tuần để nâng cấp OVR',
+    descEn: 'Open 5 card packs this week to boost squad OVR',
+  },
+  {
+    id: 'w_header_pen_5',
+    period: 'weekly',
+    difficulty: 'hard',
+    metric: 'header_or_penalty',
+    target: 5,
+    rewardCoins: 240_000,
+    titleVi: 'Không Chiến & 11m',
+    titleEn: 'Aerial & Penalty Specialist',
+    descVi: 'Ghi 5 bàn bằng Đánh Đầu (Treo Bóng) hoặc Penalty 11m',
+    descEn: 'Score 5 Header or Penalty 11m goals',
+  },
+  {
     id: 'w_goals_30',
     period: 'weekly',
+    difficulty: 'hard',
     metric: 'goals',
     target: 30,
-    rewardCoins: 6000,
+    rewardCoins: 300_000,
     titleVi: 'Vua Phá Lưới Tuần',
     titleEn: 'Weekly Goal Machine',
     descVi: 'Ghi đủ 30 bàn thắng trên sân cỏ 3D trong tuần',
@@ -3579,9 +4184,10 @@ export const FC_MISSIONS: FcMissionDef[] = [
   {
     id: 'w_top_corner_10',
     period: 'weekly',
+    difficulty: 'extreme',
     metric: 'top_corner',
     target: 10,
-    rewardCoins: 8500,
+    rewardCoins: 380_000,
     titleVi: 'Tuyệt Kỹ Góc Chữ A',
     titleEn: 'Master of Top Bins',
     descVi: 'Đá vào Góc A hoặc lập Siêu Phẩm 3D 10 lần',
@@ -3590,35 +4196,26 @@ export const FC_MISSIONS: FcMissionDef[] = [
   {
     id: 'w_3d_wins_5',
     period: 'weekly',
+    difficulty: 'extreme',
     metric: 'match_3d_won',
     target: 5,
-    rewardCoins: 9000,
+    rewardCoins: 450_000,
     titleVi: 'Bá Chủ Trận Đấu 3D',
     titleEn: '3D Match Champion',
-    descVi: 'Thắng 5 trận Đấu 3D (5v5) đối đầu Bot AI',
-    descEn: 'Win 5 full 3D Matches (5v5)',
+    descVi: 'Thắng 5 trận Đấu 3D (5v5 / 11v11) đối đầu Bot AI',
+    descEn: 'Win 5 full 3D Matches (5v5 / 11v11)',
   },
   {
-    id: 'w_header_pen_5',
+    id: 'w_pro_wins_5',
     period: 'weekly',
-    metric: 'header_or_penalty',
+    difficulty: 'extreme',
+    metric: 'hard_matches_won',
     target: 5,
-    rewardCoins: 5000,
-    titleVi: 'Không Chiến & 11m',
-    titleEn: 'Aerial & Penalty Specialist',
-    descVi: 'Ghi 5 bàn bằng Đánh Đầu (Treo Bóng) hoặc Penalty 11m',
-    descEn: 'Score 5 Header or Penalty 11m goals',
-  },
-  {
-    id: 'w_open_packs_5',
-    period: 'weekly',
-    metric: 'packs_opened',
-    target: 5,
-    rewardCoins: 6500,
-    titleVi: 'Ông Trùm Sưu Tầm Thẻ',
-    titleEn: 'Ultimate Collector',
-    descVi: 'Mở 5 Pack thẻ cầu thủ trong tuần để nâng cấp OVR',
-    descEn: 'Open 5 card packs this week to boost squad OVR',
+    rewardCoins: 600_000,
+    titleVi: 'Bá Vương Độ Khó Cao',
+    titleEn: 'Grandmaster Challenger',
+    descVi: 'Thắng 5 trận ở độ khó Pro, Siêu Khó hoặc Bất Khả Thi trong tuần',
+    descEn: 'Win 5 matches on Pro, Extreme, or Impossible difficulty this week',
   },
 ];
 
@@ -3817,11 +4414,57 @@ export function saveFcClubState(state: FcClubState): void {
   }
 }
 
+export const ALL_FC_PLAYER_IDS: string[] = Object.keys(FC_PLAYERS);
+
+export function withAdminFullPlayers(club: FcClubState): FcClubState {
+  const ownedSet = new Set(
+    club.ownedIds.filter((id) => Boolean(FC_PLAYERS[id])),
+  );
+  let changed = ownedSet.size !== club.ownedIds.length;
+  for (const id of ALL_FC_PLAYER_IDS) {
+    if (!ownedSet.has(id)) {
+      ownedSet.add(id);
+      changed = true;
+    }
+  }
+  if (!changed) return club;
+  return {
+    ...club,
+    ownedIds: Array.from(ownedSet),
+  };
+}
+
+export function isInfinityCard(card?: FcPlayerCard | null): boolean {
+  return Boolean(card && (card.isInfinity || card.rarity === 'admin_infinity'));
+}
+
+export function getCardSortPower(card: FcPlayerCard): number {
+  return isInfinityCard(card) ? 9999 : card.ovr;
+}
+
+export function formatCardOvr(card?: FcPlayerCard | null): string {
+  if (!card) return '79';
+  return isInfinityCard(card) ? '∞' : String(card.ovr);
+}
+
+export function formatCardStat(card: FcPlayerCard, value: number): string {
+  return isInfinityCard(card) ? '∞' : String(value);
+}
+
+export function hasInfinityInLineup(lineupIds: string[]): boolean {
+  return lineupIds.some((id) => isInfinityCard(FC_PLAYERS[id]));
+}
+
 export function computeSquadOvr(lineupIds: string[]): number {
   const cards = lineupIds.map((id) => FC_PLAYERS[id]).filter(Boolean);
   if (cards.length === 0) return 79;
   const sum = cards.reduce((acc, c) => acc + c.ovr, 0);
   return Math.round(sum / cards.length);
+}
+
+export function formatSquadOvr(lineupIds: string[]): string {
+  if (hasInfinityInLineup(lineupIds)) return '∞';
+  return String(computeSquadOvr(lineupIds));
 }
 
 export function buildBestLineup(
@@ -3830,7 +4473,7 @@ export function buildBestLineup(
   const ownedCards = ownedIds
     .map((id) => FC_PLAYERS[id])
     .filter(Boolean)
-    .sort((a, b) => b.ovr - a.ovr);
+    .sort((a, b) => getCardSortPower(b) - getCardSortPower(a));
   const used = new Set<string>();
 
   const pickBestFor = (
@@ -3880,18 +4523,40 @@ export function rollPackCards(
     return pack.tierOdds[0];
   };
 
+  const matchesTier = (c: FcPlayerCard, tier: FcPackTierOdds): boolean => {
+    if (c.ovr < tier.minOvr || c.ovr > tier.maxOvr) return false;
+    if (tier.rarities && !tier.rarities.includes(c.rarity)) return false;
+    if (tier.positions && !tier.positions.includes(c.position)) return false;
+    if (tier.nations && !tier.nations.includes(c.nation)) return false;
+    if (
+      tier.kickerIds &&
+      (!c.kickerId || !tier.kickerIds.includes(c.kickerId))
+    ) {
+      return false;
+    }
+    // Exclude Admin Infinity unless explicitly included in rarities filter
+    if (isInfinityCard(c) && (!tier.rarities || !tier.rarities.includes('admin_infinity'))) {
+      return false;
+    }
+    return true;
+  };
+
   const rolled: FcPlayerCard[] = [];
   let duplicateRefund = 0;
 
   for (let i = 0; i < pack.cardsCount; i++) {
     const tier = rollTier();
-    let pool = allCards.filter(
-      (c) => c.ovr >= tier.minOvr && c.ovr <= tier.maxOvr,
-    );
+    let pool = allCards.filter((c) => matchesTier(c, tier));
     if (pool.length === 0) {
       pool = allCards.filter(
-        (c) => c.ovr >= pack.minOvr && c.ovr <= pack.maxOvr,
+        (c) =>
+          !isInfinityCard(c) &&
+          c.ovr >= pack.minOvr &&
+          c.ovr <= pack.maxOvr,
       );
+    }
+    if (pool.length === 0) {
+      pool = allCards.filter((c) => !isInfinityCard(c));
     }
     const fresh = pool.filter((c) => !ownedSet.has(c.id));
     if (fresh.length > 0 && Math.random() < 0.72) {
@@ -3900,27 +4565,156 @@ export function rollPackCards(
     const picked = pool[Math.floor(Math.random() * pool.length)] ?? allCards[0];
     rolled.push(picked);
     if (ownedSet.has(picked.id)) {
-      const mult =
-        picked.ovr >= 180
-          ? 450
-          : picked.ovr >= 145
-          ? 120
-          : picked.ovr >= 137
-          ? 65
-          : picked.ovr >= 130
-          ? 32
-          : picked.ovr >= 114
-          ? 15
-          : picked.ovr >= 97
-          ? 7
-          : 2.5;
-      duplicateRefund += Math.round(picked.ovr * mult);
+      if (isInfinityCard(picked)) {
+        duplicateRefund += 1_000_000;
+      } else {
+        const mult =
+          picked.ovr >= 180
+            ? 450
+            : picked.ovr >= 145
+            ? 120
+            : picked.ovr >= 137
+            ? 65
+            : picked.ovr >= 130
+            ? 32
+            : picked.ovr >= 114
+            ? 15
+            : picked.ovr >= 97
+            ? 7
+            : 2.5;
+        duplicateRefund += Math.round(picked.ovr * mult);
+      }
     } else {
       ownedSet.add(picked.id);
     }
   }
 
-  // Sort highest OVR first for dramatic walkout reveal
-  rolled.sort((a, b) => b.ovr - a.ovr);
+  // Sort highest power first (Infinity > 200 > ...) for dramatic walkout reveal
+  rolled.sort((a, b) => getCardSortPower(b) - getCardSortPower(a));
   return { cards: rolled, duplicateRefund };
+}
+
+// ---- WINTER EVENT (SỰ KIỆN MÙA ĐÔNG) ----
+
+export interface WinterEventState {
+  lastDailyGiftDate: string | null;
+  claimedMilestones: string[];
+}
+
+export interface WinterMilestoneDef {
+  id: string;
+  titleVi: string;
+  titleEn: string;
+  descVi: string;
+  descEn: string;
+  rewardCoins: number;
+  rewardCardId: string;
+  reqPacks?: number;
+  reqWinterCards?: number;
+}
+
+export const WINTER_EVENT_STORAGE_KEY = 'nel_football_winter_event_v1';
+
+export const WINTER_MILESTONES: WinterMilestoneDef[] = [
+  {
+    id: 'winter_welcome',
+    titleVi: 'Quà Khai Hội Mùa Đông ❄',
+    titleEn: 'Winter Festival Welcome Gift ❄',
+    descVi: 'Nhận miễn phí ngay khi tham gia Sự Kiện Winter: +50.000 Xu & thẻ Quang Hải Tuyết Trắng!',
+    descEn: 'Claim free upon entering Winter Event: +50,000 Coins & Winter Quang Hải!',
+    rewardCoins: 50_000,
+    rewardCardId: 'winter_quang_hai_138',
+  },
+  {
+    id: 'winter_ice_wall',
+    titleVi: 'Bức Tường Băng Giá',
+    titleEn: 'Glacier Defensive Wall',
+    descVi: 'Mở đủ 2 Pack bất kỳ trong CLB để mở khóa Thủ Môn Zero Kelvin 146!',
+    descEn: 'Open 2 total Packs in your Club to unlock Winter Courtois 146 GK!',
+    rewardCoins: 150_000,
+    rewardCardId: 'winter_courtois_146',
+    reqPacks: 2,
+  },
+  {
+    id: 'winter_blizzard_striker',
+    titleVi: 'Cơn Lốc Bão Tuyết',
+    titleEn: 'Blizzard Speedster',
+    descVi: 'Mở đủ 5 Pack bất kỳ để chiêu mộ Kylian Mbappé Winter Ice 156 OVR!',
+    descEn: 'Open 5 total Packs to recruit Kylian Mbappé Winter Ice 156 OVR!',
+    rewardCoins: 280_000,
+    rewardCardId: 'winter_mbappe_156',
+    reqPacks: 5,
+  },
+  {
+    id: 'winter_frost_goat',
+    titleVi: 'Vua Tuyết Trắng 168',
+    titleEn: 'King of Winter 168',
+    descVi: 'Mở đủ 10 Pack hoặc sở hữu từ 4 thẻ Winter để rước Lionel Messi Winter Frost 168!',
+    descEn: 'Open 10 total Packs or own 4+ Winter cards to claim Messi Winter Frost 168!',
+    rewardCoins: 550_000,
+    rewardCardId: 'winter_messi_168',
+    reqPacks: 10,
+    reqWinterCards: 4,
+  },
+];
+
+export function loadWinterEventState(): WinterEventState {
+  try {
+    const raw = localStorage.getItem(WINTER_EVENT_STORAGE_KEY);
+    if (!raw) return { lastDailyGiftDate: null, claimedMilestones: [] };
+    const parsed = JSON.parse(raw) as Partial<WinterEventState>;
+    return {
+      lastDailyGiftDate:
+        typeof parsed.lastDailyGiftDate === 'string'
+          ? parsed.lastDailyGiftDate
+          : null,
+      claimedMilestones: Array.isArray(parsed.claimedMilestones)
+        ? parsed.claimedMilestones.filter((x) => typeof x === 'string')
+        : [],
+    };
+  } catch {
+    return { lastDailyGiftDate: null, claimedMilestones: [] };
+  }
+}
+
+export function saveWinterEventState(state: WinterEventState): void {
+  try {
+    localStorage.setItem(WINTER_EVENT_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+export function countOwnedWinterCards(ownedIds: string[]): number {
+  let count = 0;
+  for (const id of ownedIds) {
+    if (FC_PLAYERS[id]?.rarity === 'winter') count += 1;
+  }
+  return count;
+}
+
+export function isWinterMilestoneUnlocked(
+  club: FcClubState,
+  m: WinterMilestoneDef,
+): boolean {
+  if (!m.reqPacks && !m.reqWinterCards) return true;
+  if (m.reqPacks && club.packsOpened >= m.reqPacks) return true;
+  if (m.reqWinterCards && countOwnedWinterCards(club.ownedIds) >= m.reqWinterCards) {
+    return true;
+  }
+  return false;
+}
+
+export function countClaimableWinterRewards(
+  club: FcClubState,
+  winter: WinterEventState,
+  todayKey = getTodayDateKey(),
+): number {
+  let count = winter.lastDailyGiftDate !== todayKey ? 1 : 0;
+  for (const m of WINTER_MILESTONES) {
+    if (!winter.claimedMilestones.includes(m.id) && isWinterMilestoneUnlocked(club, m)) {
+      count += 1;
+    }
+  }
+  return count;
 }

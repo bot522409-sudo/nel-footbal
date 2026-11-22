@@ -1,4 +1,9 @@
-import { FcPlayerCard, Language } from '../game/fcData';
+import {
+  FcPlayerCard,
+  formatCardOvr,
+  formatCardStat,
+  Language,
+} from '../game/fcData';
 
 interface FcCardBadgeProps {
   card: FcPlayerCard;
@@ -13,6 +18,22 @@ const RARITY_STYLES: Record<
   FcPlayerCard['rarity'],
   { bg: string; border: string; ovrText: string; badge: string; badgeClass?: string }
 > = {
+  admin_infinity: {
+    bg: 'bg-gradient-to-br from-[#1e1b4b] via-[#311042] to-[#050814]',
+    border: 'border-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.35)]',
+    ovrText: 'text-cyan-200',
+    badge: 'ADMIN ∞',
+    badgeClass:
+      'bg-gradient-to-r from-cyan-300 via-amber-300 to-fuchsia-400 text-slate-950 border-white',
+  },
+  winter: {
+    bg: 'bg-gradient-to-br from-[#075985] via-[#0e7490] to-[#0f172a]',
+    border: 'border-cyan-200',
+    ovrText: 'text-cyan-100',
+    badge: 'WINTER ❄',
+    badgeClass:
+      'bg-gradient-to-r from-white via-sky-200 to-cyan-300 text-slate-950 border-white',
+  },
   supreme: {
     bg: 'bg-gradient-to-br from-[#7f1d1d] via-[#451a03] to-[#090d16]',
     border: 'border-rose-400',
@@ -98,6 +119,7 @@ export function FcCardBadge({
   compact = false,
 }: FcCardBadgeProps) {
   const style = RARITY_STYLES[card.rarity];
+  const ovrLabel = formatCardOvr(card);
 
   return (
     <button
@@ -120,7 +142,7 @@ export function FcCardBadge({
               compact ? 'text-2xl' : 'text-3xl'
             } ${style.ovrText}`}
           >
-            {card.ovr}
+            {ovrLabel}
           </div>
           <div className="text-[11px] font-bold text-slate-200 mt-0.5">
             {card.position}
@@ -142,7 +164,14 @@ export function FcCardBadge({
             className="inline-flex items-center justify-center w-7 h-7 rounded-md font-display font-extrabold text-sm border border-white/25"
             style={{
               backgroundColor: card.jerseyColor,
-              color: card.jerseyColor === '#f1f5f9' ? '#0f172a' : '#ffffff',
+              color:
+                card.jerseyColor === '#f1f5f9' ||
+                card.jerseyColor === '#f8fafc' ||
+                card.jerseyColor === '#e0f2fe' ||
+                card.jerseyColor === '#bae6fd' ||
+                card.jerseyColor === '#7dd3fc'
+                  ? '#0f172a'
+                  : '#ffffff',
             }}
           >
             {card.numberStr}
@@ -176,27 +205,27 @@ export function FcCardBadge({
       <div className="mt-2 grid grid-cols-3 gap-x-2 gap-y-0.5 font-mono-tabular text-[10px] text-slate-200">
         <div className="flex justify-between">
           <span className="text-slate-400">PAC</span>
-          <strong>{card.stats.pac}</strong>
+          <strong>{formatCardStat(card, card.stats.pac)}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-400">SHO</span>
-          <strong>{card.stats.sho}</strong>
+          <strong>{formatCardStat(card, card.stats.sho)}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-400">PAS</span>
-          <strong>{card.stats.pas}</strong>
+          <strong>{formatCardStat(card, card.stats.pas)}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-400">DRI</span>
-          <strong>{card.stats.dri}</strong>
+          <strong>{formatCardStat(card, card.stats.dri)}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-400">DEF</span>
-          <strong>{card.stats.def}</strong>
+          <strong>{formatCardStat(card, card.stats.def)}</strong>
         </div>
         <div className="flex justify-between">
           <span className="text-slate-400">PHY</span>
-          <strong>{card.stats.phy}</strong>
+          <strong>{formatCardStat(card, card.stats.phy)}</strong>
         </div>
       </div>
     </button>

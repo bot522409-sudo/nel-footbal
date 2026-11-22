@@ -4,20 +4,27 @@ import {
   Coins,
   Globe,
   Languages,
+  ListMusic,
+  LogIn,
   LogOut,
   MessageSquare,
+  Music,
   PackageOpen,
   RotateCcw,
   ShieldAlert,
+  SkipForward,
   Sparkles,
   UserPlus,
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { FcTrackMeta, soundEngine } from '../game/audio';
+import { MusicPickerPanel } from './MusicPickerPanel';
 import {
-  computeSquadOvr,
   countClaimableMissions,
   FcClubState,
+  formatSquadOvr,
   Language,
 } from '../game/fcData';
 import {
@@ -41,12 +48,14 @@ interface TopHudProps {
   pendingMarketCoins?: number;
   onToggleLang: () => void;
   onToggleAdminMode: () => void;
-  onOpenStore: (tab: 'packs' | 'squad' | 'missions' | 'market') => void;
+  onOpenStore: (tab: 'packs' | 'winter' | 'squad' | 'missions' | 'market') => void;
   onOpenOnlineArena: (tab: 'duel' | 'leaderboard') => void;
   onOpenSocialPlaza: () => void;
   onOpenInbox: () => void;
   onOpenAdmin: () => void;
   onOpenAuth: (view: AuthModalInitialView) => void;
+  onQuickGoogleLogin?: () => void;
+  googleAuthBusy?: boolean;
   onSetMode: (mode: GameMode) => void;
   onRestart: () => void;
   onToggleMute: () => void;
@@ -81,12 +90,29 @@ export function TopHud({
   onOpenInbox,
   onOpenAdmin,
   onOpenAuth,
+  onQuickGoogleLogin,
+  googleAuthBusy = false,
   onSetMode,
   onRestart,
   onToggleMute,
   onExit,
 }: TopHudProps) {
-  const squadOvr = computeSquadOvr(club.lineupIds);
+  const [bgmEnabled, setBgmEnabled] = useState<boolean>(() =>
+    soundEngine.isBgmEnabled(),
+  );
+  const [currentTrack, setCurrentTrack] = useState<FcTrackMeta>(() =>
+    soundEngine.getCurrentTrack(),
+  );
+  const [musicPickerOpen, setMusicPickerOpen] = useState(false);
+
+  useEffect(() => {
+    return soundEngine.onBgmChange(() => {
+      setBgmEnabled(soundEngine.isBgmEnabled());
+      setCurrentTrack(soundEngine.getCurrentTrack());
+    });
+  }, []);
+
+  const squadOvrLabel = formatSquadOvr(club.lineupIds);
   const claimableMissions = countClaimableMissions(club);
   const diffLabel = DIFFICULTY_LABELS[snapshot.difficulty].label;
   const diffColor =
@@ -112,10 +138,10 @@ export function TopHud({
       {/* Zone 1: Single-line Brand Wordmark */}
       <div className="pointer-events-auto flex items-center gap-2.5 bg-[#0B1320]/90 border border-white/10 rounded-lg px-3.5 py-2">
         <span className="font-display text-xl sm:text-2xl font-extrabold tracking-wide text-white whitespace-nowrap shrink-0">
-          {lang === 'vi' ? 'SÚT PHẠT 3D' : 'FREE KICK 3D'}
+          NEL FOOTBALL
         </span>
         <span className="hidden lg:inline font-mono-tabular text-xs font-bold text-emerald-400">
-          OVR {squadOvr}
+          OVR {squadOvrLabel}
         </span>
       </div>
 
@@ -242,8 +268,10 @@ export function TopHud({
               <span className="text-slate-600" aria-hidden="true">
                 ·
               </span>
-              <span className="font-semibold text-rose-400">
-                {lang === 'vi' ? 'Không Thể Vào' : 'Impossible'}
+              <span className="font-semibold text-emerald-300">
+                {lang === 'vi'
+                  ? 'Boss Yashin · Vào Lưới Là Ăn'
+                  : 'Boss Yashin · Score to Win'}
               </span>
               <span className="text-slate-600" aria-hidden="true">
                 ·
@@ -341,7 +369,7 @@ export function TopHud({
             </span>
           ) : snapshot.mode === 'impossible' ? (
             <span className="font-mono-tabular font-bold text-amber-300 whitespace-nowrap">
-              {lang === 'vi' ? 'Sút 1 Tỷ · Không thể vào' : '1B Shot · Impossible'}
+              {lang === 'vi' ? 'Sút 1 Tỷ · Sút Vô Là Ăn' : '1B Shot · Scorable'}
             </span>
           ) : snapshot.mode === 'gk_practice' ? (
             <span className="font-mono-tabular font-bold text-amber-400 whitespace-nowrap">
@@ -355,26 +383,84 @@ export function TopHud({
         </div>
 
         {!account ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              onOpenAuth('upgrade_guest');
-            }}
-            title={
-              lang === 'vi'
-                ? 'Tạo tài khoản với nick này để đăng nhập trên mọi thiết bị'
-                : 'Create account with this profile to sync across devices'
-            }
-            className="flex items-center gap-1.5 h-10 px-2.5 rounded-lg text-xs font-extrabold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <UserPlus size={14} />
-            <span className="hidden lg:inline">
-              {lang === 'vi'
-                ? 'Tạo tài khoản với nick này'
-                : 'Save Nick to Account'}
-            </span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenAuth('upgrade_guest');
+              }}
+              title={
+                lang === 'vi'
+                  ? 'Tạo tài khoản với nick này để đăng nhập trên mọi thiết bị'
+                  : 'Create account with this profile to sync across devices'
+              }
+              className="flex items-center gap-1.5 h-10 px-2.5 rounded-lg text-xs font-extrabold bg-amber-400 hover:bg-amber-300 text-slate-950 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <UserPlus size={14} />
+              <span className="hidden lg:inline">
+                {lang === 'vi'
+                  ? 'Tạo tài khoản với nick này'
+                  : 'Save Nick to Account'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onOpenAuth('login');
+              }}
+              title={lang === 'vi' ? 'Đăng nhập tài khoản' : 'Log In'}
+              className="flex items-center gap-1 h-10 px-2.5 rounded-lg text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/50 text-sky-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <LogIn size={14} />
+              <span className="hidden xl:inline">
+                {lang === 'vi' ? 'Đăng nhập' : 'Log In'}
+              </span>
+            </button>
+            {onQuickGoogleLogin ? (
+              <button
+                type="button"
+                disabled={googleAuthBusy}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onQuickGoogleLogin();
+                }}
+                title={
+                  lang === 'vi'
+                    ? 'Đăng nhập nhanh với Google'
+                    : 'Quick Sign In with Google'
+                }
+                className="flex items-center gap-1.5 h-10 px-2.5 rounded-lg text-xs font-extrabold bg-white hover:bg-slate-100 text-slate-900 shadow transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
+              >
+                <svg
+                  width={14}
+                  height={14}
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.04c1.94 0 3.51.68 4.6 1.72l3.43-3.43C17.95 1.39 15.23.25 12 .25 7.31.25 3.26 2.94 1.29 6.86l3.99 3.1C6.24 7.09 8.88 5.04 12 5.04z"
+                  />
+                  <path
+                    fill="#4285F4"
+                    d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.72 2.89c2.18-2.01 3.7-4.96 3.7-8.71z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.04A7.18 7.18 0 0 1 4.9 12c0-.71.13-1.4.38-2.04l-3.99-3.1A11.73 11.73 0 0 0 .25 12c0 1.91.46 3.71 1.29 5.31l3.74-3.27z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23.75c3.24 0 5.96-1.07 7.95-2.9l-3.72-2.89c-1.07.72-2.45 1.15-4.23 1.15-3.12 0-5.76-2.05-6.72-4.87l-3.74 3.27C3.49 21.31 7.45 23.75 12 23.75z"
+                  />
+                </svg>
+                <span className="hidden xl:inline">Google</span>
+              </button>
+            ) : null}
+          </div>
         ) : (
           <button
             type="button"
@@ -569,6 +655,74 @@ export function TopHud({
           <Languages size={14} />
           <span>{lang === 'vi' ? 'VI' : 'EN'}</span>
         </button>
+
+        <div className="flex items-center h-10 bg-[#0B1320]/90 border border-pink-400/40 rounded-lg overflow-hidden shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              soundEngine.unlock();
+              soundEngine.setBgmEnabled(!bgmEnabled);
+            }}
+            title={
+              bgmEnabled
+                ? `Nhạc FC: ${currentTrack.title} (Bấm để tắt)`
+                : 'Bật nhạc nền FC'
+            }
+            className={`flex items-center gap-1 h-10 px-2 text-xs font-bold transition-colors cursor-pointer ${
+              bgmEnabled && !snapshot.muted
+                ? 'text-pink-300 hover:text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Music size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              soundEngine.unlock();
+              setMusicPickerOpen((v) => !v);
+            }}
+            title={
+              lang === 'vi'
+                ? `Chọn bài nhạc & Remix (${currentTrack.title})`
+                : `Choose Track & Remix (${currentTrack.title})`
+            }
+            className="flex items-center gap-1 h-10 px-2 border-l border-white/10 text-xs font-bold text-slate-200 hover:text-white hover:bg-white/5 cursor-pointer"
+          >
+            <ListMusic size={13} className="text-pink-300" />
+            <span className="hidden xl:inline max-w-[90px] truncate">
+              {currentTrack.title}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              soundEngine.unlock();
+              if (!bgmEnabled) soundEngine.setBgmEnabled(true);
+              soundEngine.nextFcTrack();
+            }}
+            title={`Chuyển bài nhạc tiếp theo (Hiện tại: ${currentTrack.title})`}
+            className="flex items-center justify-center w-7 h-10 border-l border-white/10 text-slate-300 hover:text-white hover:bg-white/5 cursor-pointer"
+          >
+            <SkipForward size={12} />
+          </button>
+        </div>
+
+        {musicPickerOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center sm:justify-end p-4 pt-16 bg-black/40"
+            onClick={() => setMusicPickerOpen(false)}
+          >
+            <MusicPickerPanel
+              lang={lang}
+              muted={snapshot.muted}
+              onClose={() => setMusicPickerOpen(false)}
+            />
+          </div>
+        ) : null}
 
         <button
           type="button"

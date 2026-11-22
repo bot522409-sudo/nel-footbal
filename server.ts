@@ -68,6 +68,7 @@ interface PlayerBadge {
   elo: number;
   kickerId: string;
   gkId: string;
+  isGuest?: boolean;
   activity: PlayerActivity;
   modeLabel: string;
   waitingRoomCode?: string | null;
@@ -214,7 +215,16 @@ let visitLogs: VisitSessionLog[] = loadJsonArray<VisitSessionLog>(
 let lastVisitFlushMs = 0;
 const voiceRoomPeers = new Map<WebSocket, { playerId: string; username: string; micMuted: boolean }>();
 
-type PlazaZoneId = 'plaza' | 'disco' | 'hotel' | 'arcade';
+type PlazaZoneId =
+  | 'plaza'
+  | 'disco'
+  | 'hotel'
+  | 'hotel_lobby'
+  | 'hotel_suite'
+  | 'hotel_rooftop'
+  | 'arcade';
+
+type PlazaAvatarPose = 'stand' | 'sit' | 'sleep' | 'bath' | 'swim' | 'dance';
 
 interface PlazaUserState {
   playerId: string;
@@ -225,6 +235,7 @@ interface PlazaUserState {
   zone: PlazaZoneId;
   x: number;
   y: number;
+  pose: PlazaAvatarPose;
   emote: string | null;
   emoteUntilMs: number;
   bubbleText: string | null;
@@ -247,8 +258,30 @@ const plazaUsers = new Map<WebSocket, PlazaUserState>();
 const plazaChatHistory: PlazaChatMessage[] = [];
 
 function sanitizePlazaZone(z: unknown): PlazaZoneId {
-  if (z === 'disco' || z === 'hotel' || z === 'arcade') return z;
+  if (
+    z === 'disco' ||
+    z === 'hotel' ||
+    z === 'hotel_lobby' ||
+    z === 'hotel_suite' ||
+    z === 'hotel_rooftop' ||
+    z === 'arcade'
+  ) {
+    return z;
+  }
   return 'plaza';
+}
+
+function sanitizePlazaPose(p: unknown): PlazaAvatarPose {
+  if (
+    p === 'sit' ||
+    p === 'sleep' ||
+    p === 'bath' ||
+    p === 'swim' ||
+    p === 'dance'
+  ) {
+    return p;
+  }
+  return 'stand';
 }
 
 function broadcastPlazaState(): void {
@@ -920,6 +953,7 @@ async function startServer(): Promise<void> {
             elo: Math.max(0, Math.min(10000, Number(p.elo || 1000))),
             kickerId: String(p.kickerId || 'ronaldo'),
             gkId: String(p.gkId || 'courtois'),
+            isGuest: typeof p.isGuest === 'boolean' ? p.isGuest : undefined,
             activity: safeActivity,
             modeLabel: String(p.modeLabel || (safeActivity === 'playing' ? 'Đang Đá Sân' : 'Sảnh Chính')).slice(0, 48),
             waitingRoomCode: typeof p.waitingRoomCode === 'string' ? p.waitingRoomCode : null,
@@ -1123,6 +1157,7 @@ async function startServer(): Promise<void> {
           zone,
           x: Number.isFinite(rawX) ? Math.max(24, Math.min(976, rawX)) : 490,
           y: Number.isFinite(rawY) ? Math.max(24, Math.min(596, rawY)) : 310,
+          pose: sanitizePlazaPose(msg.pose),
           emote: null,
           emoteUntilMs: 0,
           bubbleText: null,
@@ -1146,6 +1181,9 @@ async function startServer(): Promise<void> {
         if (Number.isFinite(rawX)) user.x = Math.max(24, Math.min(976, rawX));
         if (Number.isFinite(rawY)) user.y = Math.max(24, Math.min(596, rawY));
         user.zone = sanitizePlazaZone(msg.zone);
+        if (msg.pose !== undefined) {
+          user.pose = sanitizePlazaPose(msg.pose);
+        }
         broadcastPlazaState();
         return;
       }

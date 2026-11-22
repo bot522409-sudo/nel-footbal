@@ -26,6 +26,7 @@ import { TopHud } from './components/TopHud';
 import { soundEngine } from './game/audio';
 import { FreeKickEngine } from './game/engine';
 import {
+  ALL_FC_PLAYER_IDS,
   applyMissionEvent,
   buildBestLineup,
   claimAllMissionRewards,
@@ -36,10 +37,18 @@ import {
   FC_PLAYERS,
   FcClubState,
   FcPackDef,
+  FcPlayerCard,
+  getTodayDateKey,
+  isWinterMilestoneUnlocked,
   Language,
   loadFcClubState,
+  loadWinterEventState,
   rollPackCards,
   saveFcClubState,
+  saveWinterEventState,
+  WINTER_MILESTONES,
+  WinterEventState,
+  withAdminFullPlayers,
 } from './game/fcData';
 import {
   CHALLENGE_SCENARIOS,
@@ -52,10 +61,12 @@ import {
   PlayerSkinId,
   RUNNING_AURAS,
   RunningAuraId,
+  WindState,
 } from './game/types';
 import { auth } from './services/firebaseClient';
 import {
   ADMIN_EMAIL,
+  AuthActionError,
   buyTransferListing,
   cancelTransferListing,
   claimTransferSalePayouts,
@@ -66,6 +77,7 @@ import {
   hasLocalUnsavedProgress,
   isCurrentUserAdmin,
   loadLocalBestScore,
+  loginWithGoogle,
   logoutAccount,
   markPlayedAsGuest,
   OnlineAccountProfile,
@@ -78,6 +90,7 @@ import {
   syncAccountProgressToCloud,
   TransferListingRecord,
   updateCloudOnlinePresence,
+  upsertCloudVisitSession,
 } from './services/onlineClubService';
 import {
   onlineMatchClient,
@@ -143,12 +156,16 @@ const INITIAL_SNAPSHOT: GameSnapshot = {
   matchShotsAway: 0,
   matchGoalSeq: 0,
   matchGoalTier: null,
+  matchGoalScorerName: null,
+  matchGoalTeam: null,
   power: 0.72,
   spin: { curve: -0.35, dip: 0.25 },
   shotSkill: 'normal',
   activeDribbleSkill: null,
-  weather: 'clear',
+  weather: 'snow',
   aim: { x: 1.85, y: 1.75 },
+  previewBendMeters: 0,
+  customWindActive: false,
   lastOutcome: null,
   history: [],
   muted: false,
@@ -157,16 +174,48 @@ const INITIAL_SNAPSHOT: GameSnapshot = {
   cameraHasCustomOrbit: false,
 };
 
-function getOrCreateGuestId(): string {
+const GUEST_NAME_STORAGE_KEY = 'sut_phat_3d_guest_name_v1';
+const GUEST_TAB_ID_SESSION_KEY = 'sut_phat_3d_guest_tab_id_v1';
+
+function loadSavedGuestName(): string {
   try {
-    const key = 'sut_phat_3d_guest_id';
-    const existing = localStorage.getItem(key);
-    if (existing) return existing;
+    const existing =
+      localStorage.getItem(GUEST_NAME_STORAGE_KEY) ??
+      localStorage.getItem('sut_phat_3d_guest_id');
+    if (existing && existing.trim().length >= 2) {
+      return existing.trim().slice(0, 24);
+    }
     const generated = `Khach_${Math.floor(1000 + Math.random() * 8999)}`;
-    localStorage.setItem(key, generated);
+    localStorage.setItem(GUEST_NAME_STORAGE_KEY, generated);
     return generated;
   } catch {
     return `Khach_${Math.floor(1000 + Math.random() * 8999)}`;
+  }
+}
+
+function saveGuestName(name: string): string {
+  const cleaned =
+    name.trim().replace(/\s+/g, ' ').slice(0, 24) ||
+    `Khach_${Math.floor(1000 + Math.random() * 8999)}`;
+  try {
+    localStorage.setItem(GUEST_NAME_STORAGE_KEY, cleaned);
+  } catch {
+    // ignore storage errors
+  }
+  return cleaned;
+}
+
+function getOrCreateGuestTabPlayerId(): string {
+  try {
+    const existing = sessionStorage.getItem(GUEST_TAB_ID_SESSION_KEY);
+    if (existing && existing.startsWith('guest_')) return existing;
+    const rand = Math.random().toString(36).slice(2, 8).padEnd(6, 'x');
+    const generated = `guest_${Date.now().toString(36)}_${rand}`;
+    sessionStorage.setItem(GUEST_TAB_ID_SESSION_KEY, generated);
+    return generated;
+  } catch {
+    const rand = Math.random().toString(36).slice(2, 8).padEnd(6, 'x');
+    return `guest_${Date.now().toString(36)}_${rand}`;
   }
 }
 
@@ -207,7 +256,10 @@ export default function App() {
   const lightningFlashRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<FreeKickEngine | null>(null);
   const visitSessionIdRef = useRef<string>(
-    `visit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    `visit_${Date.now()}_${Math.random().toString(36).slice(2, 8).padEnd(6, 'k')}`,
+  );
+  const visitClientTokenRef = useRef<string>(
+    `tok_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10).padEnd(8, 't')}`,
   );
   const visitStartedAtRef = useRef<number>(Date.now());
   const [snapshot, setSnapshot] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
@@ -223,8 +275,11 @@ export default function App() {
     ...DEFAULT_ONLINE_STATS,
     bestScore: loadLocalBestScore(),
   }));
+  const [winterEvent, setWinterEvent] = useState<WinterEventState>(() =>
+    loadWinterEventState(),
+  );
   const [storeTab, setStoreTab] = useState<
-    'packs' | 'squad' | 'missions' | 'market' | null
+    'packs' | 'winter' | 'squad' | 'missions' | 'market' | null
   >(null);
   const [transferListings, setTransferListings] = useState<
     TransferListingRecord[]
@@ -239,11 +294,15 @@ export default function App() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [authModalView, setAuthModalView] =
     useState<AuthModalInitialView | null>(null);
+  const [authInitialError, setAuthInitialError] =
+    useState<AuthActionError | null>(null);
+  const [googleLoginBusy, setGoogleLoginBusy] = useState(false);
   const [authInitialized, setAuthInitialized] = useState(false);
   const guestDismissedRef = useRef(false);
   const skipNextCloudSyncRef = useRef(false);
   const lastSyncedCoinsRef = useRef<number | null>(null);
-  const guestNameRef = useRef<string>(getOrCreateGuestId());
+  const [guestName, setGuestName] = useState<string>(() => loadSavedGuestName());
+  const [guestTabId] = useState<string>(() => getOrCreateGuestTabPlayerId());
 
   // Online Multiplayer 1v1 State
   const [onlineArenaTab, setOnlineArenaTab] = useState<
@@ -379,8 +438,13 @@ export default function App() {
   yourSlotRef.current = yourSlot;
 
   const hasUnsavedGuestProgress = !account && hasLocalUnsavedProgress(club);
-  const displayUsername = account?.username ?? guestNameRef.current;
-  const currentPlayerId = account?.uid ?? guestNameRef.current;
+  const displayUsername = account?.username ?? guestName;
+  const currentPlayerId = account?.uid ?? guestTabId;
+
+  const handleUpdateGuestName = useCallback((nextName: string) => {
+    const saved = saveGuestName(nextName);
+    setGuestName(saved);
+  }, []);
 
   const mergedOnlinePlayers = useMemo(() => {
     const map = new Map<string, OnlinePlayerBadge>();
@@ -392,6 +456,7 @@ export default function App() {
         elo: cp.elo,
         kickerId: cp.kickerId as KickerId,
         gkId: cp.gkId as GoalkeeperId,
+        isGuest: false,
         activity: cp.activity,
         modeLabel: cp.modeLabel,
         waitingRoomCode: cp.roomCode,
@@ -426,6 +491,32 @@ export default function App() {
     saveFcClubState(club);
   }, [club]);
 
+  useEffect(() => {
+    saveWinterEventState(winterEvent);
+  }, [winterEvent]);
+
+  // Auto-arm & start FC Soundtrack BGM when entering the app (resumes on first user gesture if browser suspends audio)
+  useEffect(() => {
+    soundEngine.startFcBgm();
+    const unlockAndPlay = () => {
+      soundEngine.unlock();
+      soundEngine.startFcBgm();
+    };
+    window.addEventListener('pointerdown', unlockAndPlay, { passive: true });
+    window.addEventListener('keydown', unlockAndPlay, { passive: true });
+    window.addEventListener('touchstart', unlockAndPlay, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlockAndPlay);
+      window.removeEventListener('keydown', unlockAndPlay);
+      window.removeEventListener('touchstart', unlockAndPlay);
+      soundEngine.stopFcBgm();
+    };
+  }, []);
+
+  useEffect(() => {
+    soundEngine.setBgmMode(inMenu ? 'menu' : 'match');
+  }, [inMenu]);
+
   // Listen to Firebase Auth state across reloads / sessions
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
@@ -437,11 +528,20 @@ export default function App() {
               profile.club,
               profile.uid,
             );
-            skipNextCloudSyncRef.current = !cleaned;
-            lastSyncedCoinsRef.current = cleanedClub.coins;
-            setIsAdmin(isCurrentUserAdmin());
-            setAccount(cleaned ? { ...profile, club: cleanedClub } : profile);
-            setClub(cleanedClub);
+            const adminFlag = isCurrentUserAdmin();
+            const finalClub = adminFlag
+              ? withAdminFullPlayers(cleanedClub)
+              : cleanedClub;
+            skipNextCloudSyncRef.current =
+              !cleaned && finalClub === cleanedClub;
+            lastSyncedCoinsRef.current = finalClub.coins;
+            setIsAdmin(adminFlag);
+            setAccount(
+              cleaned || finalClub !== cleanedClub
+                ? { ...profile, club: finalClub }
+                : profile,
+            );
+            setClub(finalClub);
             setOnlineStats(profile.stats);
             setAuthModalView(null);
             setAuthInitialized(true);
@@ -608,7 +708,9 @@ export default function App() {
       : snapshot.mode === 'gk_practice'
       ? 'Tập Thủ Môn'
       : snapshot.mode === 'practice'
-      ? 'Đang Luyện Tập'
+      ? snapshot.practiceFocus === 'curve_lab'
+        ? 'Luyện Sút Xoáy Kỹ Thuật'
+        : 'Đang Luyện Tập'
       : 'Đang Thử Thách';
 
   const waitingRoomCode =
@@ -625,6 +727,7 @@ export default function App() {
       elo: onlineStats.elo,
       kickerId: (kickerCard?.kickerId ?? 'ronaldo') as KickerId,
       gkId: (gkCard?.gkId ?? 'courtois') as GoalkeeperId,
+      isGuest: !account,
       activity: liveActivity,
       modeLabel: liveModeLabel,
       waitingRoomCode,
@@ -633,6 +736,7 @@ export default function App() {
     onlineMatchClient.connect(badge, adminEmailArg);
     onlineMatchClient.updatePlayerBadge(badge, adminEmailArg);
   }, [
+    account,
     currentPlayerId,
     isAdmin,
     displayUsername,
@@ -682,12 +786,13 @@ export default function App() {
     : liveModeLabel;
 
   useEffect(() => {
+    const accountType: 'account' | 'guest' = account ? 'account' : 'guest';
     const buildPayload = (ended = false) =>
       JSON.stringify({
         sessionId: visitSessionIdRef.current,
         playerId: currentPlayerId,
         username: displayUsername,
-        accountType: account ? 'account' : 'guest',
+        accountType,
         modeLabel: visitModeLabel,
         startedAtMs: visitStartedAtRef.current,
         ended,
@@ -701,6 +806,17 @@ export default function App() {
         keepalive: ended,
       }).catch(() => {
         // ignore transient network errors
+      });
+
+      void upsertCloudVisitSession({
+        sessionId: visitSessionIdRef.current,
+        clientToken: visitClientTokenRef.current,
+        playerId: currentPlayerId,
+        username: displayUsername,
+        accountType,
+        modeLabel: visitModeLabel,
+        startedAtMs: visitStartedAtRef.current,
+        ended,
       });
     };
 
@@ -717,6 +833,16 @@ export default function App() {
       } else {
         sendPing(true);
       }
+      void upsertCloudVisitSession({
+        sessionId: visitSessionIdRef.current,
+        clientToken: visitClientTokenRef.current,
+        playerId: currentPlayerId,
+        username: displayUsername,
+        accountType,
+        modeLabel: visitModeLabel,
+        startedAtMs: visitStartedAtRef.current,
+        ended: true,
+      });
     };
 
     window.addEventListener('pagehide', handlePageLeave);
@@ -753,6 +879,12 @@ export default function App() {
           setInQueue(false);
           setActiveRoom(event.room);
           setOnlineArenaTab(null);
+          setAuthModalView(null);
+          setStoreTab(null);
+          setInboxOpen(null);
+          setAdminPanelOpen(false);
+          setSocialPlazaOpen(false);
+          soundEngine.stopDiscoBeat();
           setInMenu(false);
           setOnlineMatchCoins(0);
           setOnlineMatchReason(null);
@@ -949,6 +1081,13 @@ export default function App() {
     engineRef.current?.setAdmin(isAdmin && adminModeEnabled);
   }, [isAdmin, adminModeEnabled]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (club.ownedIds.length < ALL_FC_PLAYER_IDS.length) {
+      setClub((prev) => withAdminFullPlayers(prev));
+    }
+  }, [isAdmin, club.ownedIds.length]);
+
   const handleStateUpdate = useCallback((next: GameSnapshot) => {
     setSnapshot(next);
 
@@ -1045,6 +1184,12 @@ export default function App() {
           next.mode === 'vs_bot' ||
           next.mode === 'penalty');
 
+      const wonHardMatch =
+        wonCompetitive &&
+        (next.difficulty === 'pro' ||
+          next.difficulty === 'extreme' ||
+          next.mode === 'impossible');
+
       setLastCoinsEarned(earned);
       setClub((prev) =>
         applyMissionEvent(
@@ -1058,6 +1203,7 @@ export default function App() {
             ? {
                 matches_won: 1,
                 match_3d_won: next.mode === 'match' ? 1 : 0,
+                hard_matches_won: wonHardMatch ? 1 : 0,
               }
             : {},
         ),
@@ -1124,7 +1270,7 @@ export default function App() {
   }, []);
 
   const handleOpenStore = (
-    tab: 'packs' | 'squad' | 'missions' | 'market',
+    tab: 'packs' | 'winter' | 'squad' | 'missions' | 'market',
   ) => {
     setClub((prev) => ({
       ...prev,
@@ -1143,6 +1289,7 @@ export default function App() {
   };
 
   const handleOpenAuth = (view: AuthModalInitialView) => {
+    setAuthInitialError(null);
     setAuthModalView(view);
     engineRef.current?.setPaused(true);
   };
@@ -1152,12 +1299,21 @@ export default function App() {
       profile.club,
       profile.uid,
     );
-    skipNextCloudSyncRef.current = !cleaned;
-    lastSyncedCoinsRef.current = cleanedClub.coins;
-    setIsAdmin(isCurrentUserAdmin());
-    setAccount(cleaned ? { ...profile, club: cleanedClub } : profile);
-    setClub(cleanedClub);
+    const adminFlag = isCurrentUserAdmin();
+    const finalClub = adminFlag
+      ? withAdminFullPlayers(cleanedClub)
+      : cleanedClub;
+    skipNextCloudSyncRef.current = !cleaned && finalClub === cleanedClub;
+    lastSyncedCoinsRef.current = finalClub.coins;
+    setIsAdmin(adminFlag);
+    setAccount(
+      cleaned || finalClub !== cleanedClub
+        ? { ...profile, club: finalClub }
+        : profile,
+    );
+    setClub(finalClub);
     setOnlineStats(profile.stats);
+    setAuthInitialError(null);
     setAuthModalView(null);
     if (!inMenu && !storeTab && !onlineArenaTab && !adminPanelOpen && !socialPlazaOpen) {
       engineRef.current?.setPaused(false);
@@ -1165,9 +1321,28 @@ export default function App() {
     }
   };
 
+  const handleQuickGoogleLogin = async () => {
+    if (googleLoginBusy) return;
+    setGoogleLoginBusy(true);
+    const seedClub = hasLocalUnsavedProgress(club) ? club : undefined;
+    const res = await loginWithGoogle(seedClub);
+    setGoogleLoginBusy(false);
+    if (res.ok) {
+      handleAuthSuccess(res.profile);
+      return;
+    }
+    if (res.error.code === 'auth/popup-closed-by-user') {
+      return;
+    }
+    setAuthInitialError(res.error);
+    setAuthModalView('login');
+    engineRef.current?.setPaused(true);
+  };
+
   const handleContinueAsGuest = () => {
     guestDismissedRef.current = true;
     markPlayedAsGuest();
+    setAuthInitialError(null);
     setAuthModalView(null);
     if (!inMenu && !storeTab && !onlineArenaTab && !adminPanelOpen && !socialPlazaOpen) {
       engineRef.current?.setPaused(false);
@@ -1394,6 +1569,82 @@ export default function App() {
     setClub((prev) => claimAllMissionRewards(prev).nextState);
   };
 
+  const handleClaimWinterDailyGift = (): {
+    cards: FcPlayerCard[];
+    coins: number;
+    duplicateRefund: number;
+  } | null => {
+    const todayKey = getTodayDateKey();
+    if (winterEvent.lastDailyGiftDate === todayKey) return null;
+    const winterPool = Object.values(FC_PLAYERS).filter(
+      (c) => c.rarity === 'winter',
+    );
+    const unowned = winterPool.filter((c) => !club.ownedIds.includes(c.id));
+    const pickPool = unowned.length > 0 ? unowned : winterPool;
+    const picked =
+      pickPool[Math.floor(Math.random() * pickPool.length)] ??
+      FC_PLAYERS['winter_quang_hai_138'];
+    const isDup = club.ownedIds.includes(picked.id);
+    const duplicateRefund = isDup ? 25_000 : 0;
+    const coinsAward = 50_000;
+    const adminUnlimited = isEffectiveAdmin;
+
+    setWinterEvent((prev) => ({
+      ...prev,
+      lastDailyGiftDate: todayKey,
+    }));
+    setClub((prev) => ({
+      ...prev,
+      coins: adminUnlimited
+        ? prev.coins
+        : prev.coins + coinsAward + duplicateRefund,
+      ownedIds: Array.from(new Set([...prev.ownedIds, picked.id])),
+    }));
+
+    return {
+      cards: [picked],
+      coins: coinsAward,
+      duplicateRefund,
+    };
+  };
+
+  const handleClaimWinterMilestone = (
+    milestoneId: string,
+  ): {
+    cards: FcPlayerCard[];
+    coins: number;
+    duplicateRefund: number;
+  } | null => {
+    const milestone = WINTER_MILESTONES.find((m) => m.id === milestoneId);
+    if (!milestone) return null;
+    if (winterEvent.claimedMilestones.includes(milestone.id)) return null;
+    if (!isWinterMilestoneUnlocked(club, milestone)) return null;
+
+    const card =
+      FC_PLAYERS[milestone.rewardCardId] ?? FC_PLAYERS['winter_quang_hai_138'];
+    const isDup = club.ownedIds.includes(card.id);
+    const duplicateRefund = isDup ? 35_000 : 0;
+    const adminUnlimited = isEffectiveAdmin;
+
+    setWinterEvent((prev) => ({
+      ...prev,
+      claimedMilestones: [...prev.claimedMilestones, milestone.id],
+    }));
+    setClub((prev) => ({
+      ...prev,
+      coins: adminUnlimited
+        ? prev.coins
+        : prev.coins + milestone.rewardCoins + duplicateRefund,
+      ownedIds: Array.from(new Set([...prev.ownedIds, card.id])),
+    }));
+
+    return {
+      cards: [card],
+      coins: milestone.rewardCoins,
+      duplicateRefund,
+    };
+  };
+
   const handleCreateTransferListing = async (cardId: string, price: number) => {
     if (!account) {
       throw new Error('Vui lòng đăng nhập để rao bán cầu thủ.');
@@ -1481,6 +1732,21 @@ export default function App() {
     if (engine) {
       engine.setPaused(false);
       engine.setMode(targetMode);
+    }
+    focusGameSurface();
+  };
+
+  const handleSelectCurveTraining = () => {
+    if (!account) {
+      markPlayedAsGuest();
+    }
+    setInMenu(false);
+    setLastCoinsEarned(0);
+    const engine = engineRef.current;
+    if (engine) {
+      engine.setPaused(false);
+      engine.setPracticeFocus('curve_lab');
+      engine.setMode('practice');
     }
     focusGameSurface();
   };
@@ -1610,6 +1876,7 @@ export default function App() {
         <MainMenuOverlay
           snapshot={snapshot}
           club={club}
+          winterEvent={winterEvent}
           lang={lang}
           account={account}
           isAdmin={isEffectiveAdmin}
@@ -1629,6 +1896,8 @@ export default function App() {
           onOpenInbox={() => handleOpenInbox('global')}
           onOpenAdmin={handleOpenAdmin}
           onOpenAuth={handleOpenAuth}
+          onQuickGoogleLogin={() => void handleQuickGoogleLogin()}
+          googleAuthBusy={googleLoginBusy}
           onLogout={handleLogout}
           onSelectMode={(mode) => engineRef.current?.setMode(mode)}
           onSelectMatchFormat={(format) =>
@@ -1646,6 +1915,7 @@ export default function App() {
             engineRef.current?.setTeams(home, away)
           }
           onStartGame={handleStartGame}
+          onStartCurveTraining={handleSelectCurveTraining}
           onToggleMute={() => engineRef.current?.toggleMute()}
         />
       ) : (
@@ -1676,6 +1946,8 @@ export default function App() {
             onOpenInbox={() => handleOpenInbox('global')}
             onOpenAdmin={handleOpenAdmin}
             onOpenAuth={handleOpenAuth}
+            onQuickGoogleLogin={() => void handleQuickGoogleLogin()}
+            googleAuthBusy={googleLoginBusy}
             onSetMode={(mode) => {
               if (
                 mode === 'impossible' &&
@@ -1778,6 +2050,10 @@ export default function App() {
               engineRef.current?.setMatchFormat(format)
             }
             onSetWeather={(weather) => engineRef.current?.setWeather(weather)}
+            onSetCustomWind={(wind: WindState) =>
+              engineRef.current?.setCustomWind(wind)
+            }
+            onResetCustomWind={() => engineRef.current?.resetCustomWind()}
             onSetShotSkill={(skill) => engineRef.current?.setShotSkill(skill)}
             onBeginSkillCharge={(skill) => engineRef.current?.beginSkillCharge(skill)}
             onGkDive={(dir) => engineRef.current?.diveGoalkeeper(dir)}
@@ -1809,6 +2085,15 @@ export default function App() {
             onMatchSlideTackle={() =>
               engineRef.current?.triggerMatchSlideTackle()
             }
+            onSkipMatchGoal={() => {
+              if (goalBannerTimerRef.current) {
+                window.clearTimeout(goalBannerTimerRef.current);
+                goalBannerTimerRef.current = null;
+              }
+              setGoalCelebration(null);
+              engineRef.current?.skipMatchGoalCelebration();
+              focusGameSurface();
+            }}
           />
         </>
       )}
@@ -1817,6 +2102,7 @@ export default function App() {
       {storeTab ? (
         <FcStoreModal
           club={club}
+          winterEvent={winterEvent}
           lang={lang}
           isAdmin={isEffectiveAdmin}
           account={account}
@@ -1832,6 +2118,8 @@ export default function App() {
           onAutoBestLineup={handleAutoBestLineup}
           onClaimMission={handleClaimMission}
           onClaimAllMissions={handleClaimAllMissions}
+          onClaimWinterDailyGift={handleClaimWinterDailyGift}
+          onClaimWinterMilestone={handleClaimWinterMilestone}
           onCreateListing={handleCreateTransferListing}
           onCancelListing={handleCancelTransferListing}
           onBuyListing={handleBuyTransferListing}
@@ -1886,6 +2174,7 @@ export default function App() {
             setOnlineArenaTab(null);
             handleOpenAuth('upgrade_guest');
           }}
+          onUpdateGuestName={handleUpdateGuestName}
           onClose={handleCloseOnlineArena}
         />
       ) : null}
@@ -1936,6 +2225,7 @@ export default function App() {
           club={club}
           hasUnsavedGuestProgress={hasUnsavedGuestProgress}
           initialView={authModalView}
+          initialError={authInitialError}
           canDismissToGuest={true}
           onSuccess={handleAuthSuccess}
           onContinueAsGuest={handleContinueAsGuest}

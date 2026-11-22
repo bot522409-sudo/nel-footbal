@@ -9,6 +9,7 @@ export interface OnlinePlayerBadge {
   elo: number;
   kickerId: KickerId;
   gkId: GoalkeeperId;
+  isGuest?: boolean;
   activity?: OnlinePlayerActivity;
   modeLabel?: string;
   waitingRoomCode?: string | null;
@@ -84,7 +85,16 @@ export interface VoiceRoomMember {
   micMuted: boolean;
 }
 
-export type PlazaZoneId = 'plaza' | 'disco' | 'hotel' | 'arcade';
+export type PlazaZoneId =
+  | 'plaza'
+  | 'disco'
+  | 'hotel'
+  | 'hotel_lobby'
+  | 'hotel_suite'
+  | 'hotel_rooftop'
+  | 'arcade';
+
+export type PlazaAvatarPose = 'stand' | 'sit' | 'sleep' | 'bath' | 'swim' | 'dance';
 
 export interface PlazaUserState {
   playerId: string;
@@ -95,6 +105,7 @@ export interface PlazaUserState {
   zone: PlazaZoneId;
   x: number;
   y: number;
+  pose?: PlazaAvatarPose;
   emote: string | null;
   emoteUntilMs: number;
   bubbleText: string | null;
@@ -391,12 +402,18 @@ class OnlineMatchClient {
     zone: PlazaZoneId;
     x: number;
     y: number;
+    pose?: PlazaAvatarPose;
   }): void {
     this.send({ type: 'plaza:join', ...params });
   }
 
-  public moveInPlaza(x: number, y: number, zone: PlazaZoneId): void {
-    this.send({ type: 'plaza:move', x, y, zone });
+  public moveInPlaza(
+    x: number,
+    y: number,
+    zone: PlazaZoneId,
+    pose?: PlazaAvatarPose,
+  ): void {
+    this.send({ type: 'plaza:move', x, y, zone, pose });
   }
 
   public updatePlazaAvatar(kickerId: string, skinId: string, auraId: string): void {

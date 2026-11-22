@@ -5,10 +5,12 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Coins,
+  Gift,
   LogIn,
   PackageOpen,
   Search,
   Shield,
+  Snowflake,
   Sparkles,
   Tag,
   Trophy,
@@ -16,8 +18,11 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ALL_FC_PLAYER_IDS,
   computeSquadOvr,
   countClaimableMissions,
+  countClaimableWinterRewards,
+  countOwnedWinterCards,
   ensureFreshMissions,
   FC_MISSIONS,
   FC_PACKS,
@@ -25,8 +30,16 @@ import {
   FcClubState,
   FcPackDef,
   FcPlayerCard,
+  formatCardOvr,
+  formatSquadOvr,
+  getCardSortPower,
   getMissionProgressValue,
+  getTodayDateKey,
+  hasInfinityInLineup,
+  isWinterMilestoneUnlocked,
   Language,
+  WINTER_MILESTONES,
+  WinterEventState,
 } from '../game/fcData';
 import {
   OnlineAccountProfile,
@@ -34,10 +47,11 @@ import {
 } from '../services/onlineClubService';
 import { FcCardBadge } from './FcCardBadge';
 
-export type FcStoreTab = 'packs' | 'squad' | 'missions' | 'market';
+export type FcStoreTab = 'packs' | 'winter' | 'squad' | 'missions' | 'market';
 
 interface FcStoreModalProps {
   club: FcClubState;
+  winterEvent: WinterEventState;
   lang: Language;
   isAdmin: boolean;
   account: OnlineAccountProfile | null;
@@ -53,6 +67,16 @@ interface FcStoreModalProps {
   onAutoBestLineup: () => void;
   onClaimMission: (missionId: string) => void;
   onClaimAllMissions: () => void;
+  onClaimWinterDailyGift: () => {
+    cards: FcPlayerCard[];
+    coins: number;
+    duplicateRefund: number;
+  } | null;
+  onClaimWinterMilestone: (milestoneId: string) => {
+    cards: FcPlayerCard[];
+    coins: number;
+    duplicateRefund: number;
+  } | null;
   onCreateListing: (cardId: string, price: number) => Promise<void>;
   onCancelListing: (listingId: string) => Promise<void>;
   onBuyListing: (listingId: string) => Promise<void>;
@@ -89,6 +113,7 @@ function suggestListingPrice(ovr: number): number {
 
 export function FcStoreModal({
   club,
+  winterEvent,
   lang,
   isAdmin,
   account,
@@ -101,6 +126,8 @@ export function FcStoreModal({
   onAutoBestLineup,
   onClaimMission,
   onClaimAllMissions,
+  onClaimWinterDailyGift,
+  onClaimWinterMilestone,
   onCreateListing,
   onCancelListing,
   onBuyListing,
@@ -129,6 +156,16 @@ export function FcStoreModal({
 
   const isVi = lang === 'vi';
   const squadOvr = computeSquadOvr(club.lineupIds);
+  const squadOvrLabel = formatSquadOvr(club.lineupIds);
+  const lineupHasInfinity = hasInfinityInLineup(club.lineupIds);
+  const todayKey = getTodayDateKey();
+  const winterDailyClaimed = winterEvent.lastDailyGiftDate === todayKey;
+  const winterClaimableCount = countClaimableWinterRewards(
+    club,
+    winterEvent,
+    todayKey,
+  );
+  const winterOwnedCount = countOwnedWinterCards(club.ownedIds);
   const freshMissions = ensureFreshMissions(club.missions);
   const claimableCount = countClaimableMissions(club);
   const dailyMissions = FC_MISSIONS.filter((m) => m.period === 'daily');
@@ -136,7 +173,7 @@ export function FcStoreModal({
   const ownedCards = club.ownedIds
     .map((id) => FC_PLAYERS[id])
     .filter(Boolean)
-    .sort((a, b) => b.ovr - a.ovr);
+    .sort((a, b) => getCardSortPower(b) - getCardSortPower(a));
 
   const filteredCards = ownedCards.filter((c) => {
     if (filterPos === 'ALL') return true;
@@ -347,8 +384,12 @@ export function FcStoreModal({
             <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-white tracking-wide mt-0.5">
               {tab === 'packs'
                 ? lang === 'vi'
-                  ? 'CỬA HÀNG MỞ PACK'
-                  : 'FC PACK STORE'
+                  ? `CỬA HÀNG MỞ PACK (${FC_PACKS.length} LOẠI)`
+                  : `FC PACK STORE (${FC_PACKS.length} PACKS)`
+                : tab === 'winter'
+                ? lang === 'vi'
+                  ? 'SỰ KIỆN WINTER · MÙA ĐÔNG BĂNG GIÁ ❄'
+                  : 'WINTER FROST EVENT ❄'
                 : tab === 'market'
                 ? lang === 'vi'
                   ? 'KHU TRAO ĐỔI & MUA BÁN CẦU THỦ'
@@ -371,7 +412,7 @@ export function FcStoreModal({
 
             <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-mono-tabular text-sm font-bold">
               <Shield size={16} />
-              <span>OVR {squadOvr}</span>
+              <span>OVR {squadOvrLabel}</span>
             </div>
 
             <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-white/10 flex-wrap">
@@ -386,6 +427,28 @@ export function FcStoreModal({
               >
                 <PackageOpen size={14} />
                 <span>{lang === 'vi' ? 'Mua Pack' : 'Packs'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('winter')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                  tab === 'winter'
+                    ? 'bg-sky-300 text-slate-950'
+                    : winterClaimableCount > 0
+                    ? 'bg-sky-500/25 text-sky-200 hover:text-white border border-sky-400/40'
+                    : 'text-sky-200 hover:text-white'
+                }`}
+              >
+                <Snowflake size={14} />
+                <span>
+                  {lang === 'vi'
+                    ? winterClaimableCount > 0
+                      ? `Winter (${winterClaimableCount})`
+                      : 'Sự Kiện Winter'
+                    : winterClaimableCount > 0
+                    ? `Winter (${winterClaimableCount})`
+                    : 'Winter Event'}
+                </span>
               </button>
               <button
                 type="button"
@@ -441,7 +504,11 @@ export function FcStoreModal({
                 <Users size={14} />
                 <span>
                   {lang === 'vi'
-                    ? `Đội Hình (${ownedCards.length})`
+                    ? isAdmin
+                      ? `Đội Hình (FULL · ${ownedCards.length})`
+                      : `Đội Hình (${ownedCards.length})`
+                    : isAdmin
+                    ? `Squad (FULL · ${ownedCards.length})`
                     : `Squad (${ownedCards.length})`}
                 </span>
               </button>
@@ -508,17 +575,21 @@ export function FcStoreModal({
             <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/10 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-3">
               <p>
                 {lang === 'vi'
-                  ? 'Ghi bàn (+100 Xu), thắng trận & làm Nhiệm Vụ để săn thẻ 130+ (tỉ lệ tối đa 5%, càng hiếm tỉ lệ càng thấp) lên tới OVR 150!'
-                  : 'Earn Coins from goals (+100), wins & Missions to hunt rare 130+ cards (max 5% odds, rarer = lower %) up to 150 OVR!'}
+                  ? `Mở ${FC_PACKS.length} loại Pack cực vui: Pack Việt Nam, Bức Tường GK, Tài Năng Trẻ, Winter Tuyết Trắng, Bậc Thầy Xoáy, Tiệc 6 Thẻ & Pack Admin Vô Cực ∞!`
+                  : `Open ${FC_PACKS.length} fun Packs: Vietnam Stars, GK Wall, Wonderkids, Winter Frost, Curve Masters, Mega 6-Card Party & Admin Infinity ∞!`}
               </p>
               <div className="flex items-center gap-3">
                 <span className="font-mono-tabular text-amber-300 font-semibold">
                   {lang === 'vi'
-                    ? `Đã mở: ${club.packsOpened} Pack · Mục tiêu: OVR ${squadOvr}/${
-                        isAdmin || squadOvr > 150 ? 200 : 150
+                    ? `Đã mở: ${club.packsOpened} Pack · Đội Hình: OVR ${squadOvrLabel}${
+                        lineupHasInfinity
+                          ? ''
+                          : `/${isAdmin || squadOvr > 150 ? 200 : 150}`
                       }`
-                    : `Opened: ${club.packsOpened} Packs · Goal: OVR ${squadOvr}/${
-                        isAdmin || squadOvr > 150 ? 200 : 150
+                    : `Opened: ${club.packsOpened} Packs · Squad: OVR ${squadOvrLabel}${
+                        lineupHasInfinity
+                          ? ''
+                          : `/${isAdmin || squadOvr > 150 ? 200 : 150}`
                       }`}
                 </span>
                 {claimableCount > 0 ? (
@@ -538,16 +609,22 @@ export function FcStoreModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
               {FC_PACKS.map((pack) => {
                 const canAfford = isAdmin || club.coins >= pack.price;
+                const isInfinityPack = pack.id === 'admin_infinity_pack';
                 const isSupremePack =
                   Boolean(pack.adminOnly) || pack.id === 'admin_200_pack';
+                const isWinterPack = pack.id.startsWith('winter_');
                 const isTopMythic =
                   pack.id === 'divine_150_pack' || pack.id === 'goat_pack';
                 return (
                   <div
                     key={pack.id}
                     className={`flex flex-col justify-between p-4 rounded-2xl border shadow-lg ${
-                      isSupremePack
+                      isInfinityPack
+                        ? 'bg-gradient-to-br from-[#1e1b4b] via-[#311042] to-[#0f172a] border-cyan-300/85'
+                        : isSupremePack
                         ? 'bg-gradient-to-br from-[#3b0a18] via-[#1b1024] to-[#0b1320] border-amber-300/80'
+                        : isWinterPack
+                        ? 'bg-gradient-to-br from-[#0c2d48] via-[#0e1e36] to-[#0b1320] border-sky-300/75'
                         : pack.id === 'divine_150_pack'
                         ? 'bg-slate-900/90 border-fuchsia-400/65'
                         : isTopMythic
@@ -564,9 +641,17 @@ export function FcStoreModal({
                           >
                             {pack.badgeText}
                           </span>
-                          {isSupremePack ? (
+                          {isInfinityPack ? (
+                            <span className="px-1.5 py-0.5 rounded bg-cyan-300 text-slate-950 text-[10px] font-extrabold">
+                              CHỈ SỐ ∞
+                            </span>
+                          ) : isSupremePack ? (
                             <span className="px-1.5 py-0.5 rounded bg-amber-300 text-slate-950 text-[10px] font-extrabold">
                               {lang === 'vi' ? 'SIÊU CẤP 200' : 'OVR 200'}
+                            </span>
+                          ) : isWinterPack ? (
+                            <span className="px-1.5 py-0.5 rounded bg-sky-200 text-slate-950 text-[10px] font-extrabold">
+                              WINTER ❄
                             </span>
                           ) : null}
                         </div>
@@ -587,7 +672,7 @@ export function FcStoreModal({
                       <div className="mt-2.5 pt-2 border-t border-white/10 space-y-1">
                         {pack.tierOdds.map((t) => (
                           <div
-                            key={`${pack.id}-${t.minOvr}-${t.maxOvr}`}
+                            key={`${pack.id}-${t.labelEn}-${t.minOvr}-${t.maxOvr}`}
                             className={`flex items-center justify-between text-[11px] font-mono-tabular ${
                               t.isRare130Plus
                                 ? 'text-amber-300 font-bold'
@@ -608,8 +693,12 @@ export function FcStoreModal({
                         onClick={() => handleOpenPack(pack)}
                         className={`w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-extrabold transition-colors cursor-pointer ${
                           canAfford
-                            ? isSupremePack
+                            ? isInfinityPack
+                              ? 'bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-400 hover:brightness-110 text-slate-950'
+                              : isSupremePack
                               ? 'bg-gradient-to-r from-amber-300 to-rose-400 hover:brightness-110 text-slate-950'
+                              : isWinterPack
+                              ? 'bg-gradient-to-r from-sky-200 to-cyan-300 hover:brightness-110 text-slate-950'
                               : 'bg-amber-400 hover:bg-amber-300 text-slate-950'
                             : 'bg-slate-800 text-slate-400 cursor-not-allowed'
                         }`}
@@ -633,6 +722,303 @@ export function FcStoreModal({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        ) : tab === 'winter' ? (
+          /* WINTER EVENT HUB TAB */
+          <div className="py-5 space-y-5">
+            {/* Snowy Hero Banner */}
+            <div className="p-5 rounded-2xl bg-gradient-to-br from-[#f8fbff] via-[#e0f2fe] to-[#bae6fd] border-2 border-sky-300 text-slate-900 shadow-lg flex flex-wrap items-center justify-between gap-4">
+              <div className="space-y-1 max-w-2xl">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-700 text-white text-[11px] font-extrabold tracking-wide">
+                  <Snowflake size={13} />
+                  <span>
+                    {isVi
+                      ? 'SỰ KIỆN WINTER · MÙA ĐÔNG TUYẾT TRẮNG'
+                      : 'WINTER FROST FESTIVAL EVENT'}
+                  </span>
+                </div>
+                <h3 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-wide">
+                  {isVi
+                    ? 'SÂN CỎ PHỦ TUYẾT · SĂN THẺ WINTER 168 & ADMIN ∞'
+                    : 'SNOW-COVERED PITCH · COLLECT WINTER 168 & ADMIN ∞'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                  {isVi
+                    ? 'Nhận quà điểm danh tuyết rơi mỗi ngày (+50.000 Xu + 1 Thẻ Winter), hoàn thành 4 mốc sự kiện nhận miễn phí Quang Hải 138, Courtois 146, Mbappé 156 và Messi Winter Frost 168!'
+                    : 'Claim a Daily Winter Gift (+50,000 Coins + 1 Winter Card) and complete 4 Winter milestones for Winter Quang Hải 138, Courtois 146, Mbappé 156 & Messi 168!'}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                <div className="px-3.5 py-2 rounded-xl bg-white/90 border border-sky-300 text-center">
+                  <div className="text-[10px] font-bold text-slate-500">
+                    {isVi ? 'Thẻ Winter Sở Hữu' : 'Winter Cards'}
+                  </div>
+                  <div className="font-mono-tabular text-lg font-extrabold text-sky-700">
+                    {winterOwnedCount} / 10
+                  </div>
+                </div>
+                <div className="px-3.5 py-2 rounded-xl bg-white/90 border border-sky-300 text-center">
+                  <div className="text-[10px] font-bold text-slate-500">
+                    {isVi ? 'Pack Đã Mở' : 'Packs Opened'}
+                  </div>
+                  <div className="font-mono-tabular text-lg font-extrabold text-indigo-700">
+                    {club.packsOpened}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Daily Winter Gift + Featured Winter Packs */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
+              <div className="lg:col-span-5 p-4 rounded-2xl bg-gradient-to-br from-sky-900/75 to-slate-900 border-2 border-sky-300/65 flex flex-col justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-sky-300 text-slate-950 flex items-center justify-center shrink-0">
+                    <Gift size={22} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-extrabold text-sky-300">
+                      {isVi ? 'QUÀ MÙA ĐÔNG HẰNG NGÀY' : 'DAILY WINTER GIFT'}
+                    </div>
+                    <h4 className="text-base font-extrabold text-white mt-0.5">
+                      {isVi
+                        ? '+50.000 Xu + 1 Thẻ Winter Băng Giá'
+                        : '+50,000 Coins + 1 Winter Frost Card'}
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {isVi
+                        ? `Ngày ${todayKey} · Nhấn nhận miễn phí mỗi ngày trong suốt sự kiện Winter.`
+                        : `Date ${todayKey} · Free daily reward during the Winter Event.`}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={winterDailyClaimed}
+                  onClick={() => {
+                    const res = onClaimWinterDailyGift();
+                    if (res) {
+                      setPackResult({
+                        cards: res.cards,
+                        duplicateRefund: res.duplicateRefund,
+                        packName: isVi
+                          ? 'QUÀ MÙA ĐÔNG HẰNG NGÀY ❄ (+50.000 Xu)'
+                          : 'DAILY WINTER GIFT ❄ (+50,000 Coins)',
+                      });
+                    }
+                  }}
+                  className={`w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-extrabold transition-colors ${
+                    winterDailyClaimed
+                      ? 'bg-slate-800 text-emerald-400 cursor-default'
+                      : 'bg-sky-300 hover:bg-sky-200 text-slate-950 cursor-pointer'
+                  }`}
+                >
+                  {winterDailyClaimed
+                    ? isVi
+                      ? 'Đã Nhận Quà Hôm Nay ✓'
+                      : 'Claimed Today ✓'
+                    : isVi
+                    ? 'Nhận Quà Winter Miễn Phí ❄'
+                    : 'Claim Free Winter Gift ❄'}
+                </button>
+              </div>
+
+              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  'winter_frost_pack',
+                  'winter_blizzard_pack',
+                  'admin_infinity_pack',
+                ]
+                  .map((id) => FC_PACKS.find((p) => p.id === id))
+                  .filter((p): p is FcPackDef => Boolean(p))
+                  .map((pack) => {
+                    const canAfford = isAdmin || club.coins >= pack.price;
+                    const isInf = pack.id === 'admin_infinity_pack';
+                    return (
+                      <div
+                        key={`winter-quick-${pack.id}`}
+                        className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2.5 ${
+                          isInf
+                            ? 'bg-gradient-to-br from-[#1e1b4b] to-[#0f172a] border-cyan-300/80'
+                            : 'bg-gradient-to-br from-[#0c2d48] to-[#0b1320] border-sky-300/65'
+                        }`}
+                      >
+                        <div>
+                          <span
+                            className="inline-block px-2 py-0.5 rounded text-[10px] font-extrabold text-slate-950"
+                            style={{ backgroundColor: pack.accentColor }}
+                          >
+                            {pack.badgeText}
+                          </span>
+                          <h5 className="font-display text-lg font-extrabold text-white mt-2 leading-tight">
+                            {isVi ? pack.nameVi : pack.nameEn}
+                          </h5>
+                          <p className="text-[11px] text-slate-300 mt-1 leading-snug">
+                            {isVi ? pack.descVi : pack.descEn}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!canAfford}
+                          onClick={() => handleOpenPack(pack)}
+                          className={`w-full py-2 px-2.5 rounded-lg text-xs font-extrabold cursor-pointer ${
+                            canAfford
+                              ? isInf
+                                ? 'bg-gradient-to-r from-cyan-300 to-fuchsia-400 text-slate-950'
+                                : 'bg-sky-300 hover:bg-sky-200 text-slate-950'
+                              : 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {isAdmin
+                            ? isVi
+                              ? 'Mở Miễn Phí (Admin)'
+                              : 'Open Free (Admin)'
+                            : `${pack.price.toLocaleString()} Xu`}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+
+            {/* 4 Winter Milestone Quests */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-display text-lg font-extrabold text-sky-300 tracking-wide flex items-center gap-2">
+                  <Snowflake size={18} />
+                  <span>
+                    {isVi
+                      ? 'MỐC THƯỞNG SỰ KIỆN WINTER (NHẬN THẺ + XU)'
+                      : 'WINTER EVENT MILESTONE REWARDS'}
+                  </span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setTab('packs')}
+                  className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-200 cursor-pointer"
+                >
+                  {isVi ? 'Xem Tất Cả 17 Pack →' : 'View All 17 Packs →'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {WINTER_MILESTONES.map((m) => {
+                  const unlocked = isWinterMilestoneUnlocked(club, m);
+                  const claimed = winterEvent.claimedMilestones.includes(m.id);
+                  const rewardCard = FC_PLAYERS[m.rewardCardId];
+                  const packProgress = m.reqPacks
+                    ? Math.min(m.reqPacks, club.packsOpened)
+                    : 1;
+                  const packTarget = m.reqPacks ?? 1;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`p-4 rounded-2xl border flex flex-col justify-between gap-3 ${
+                        unlocked && !claimed
+                          ? 'bg-sky-500/15 border-sky-300/75'
+                          : claimed
+                          ? 'bg-slate-900/55 border-white/10 opacity-80'
+                          : 'bg-slate-900/85 border-white/15'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-extrabold text-white">
+                            {isVi ? m.titleVi : m.titleEn}
+                          </h4>
+                          <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
+                            {isVi ? m.descVi : m.descEn}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-mono-tabular">
+                            <span className="px-2 py-0.5 rounded bg-amber-400/15 border border-amber-400/40 text-amber-300 font-bold">
+                              +{m.rewardCoins.toLocaleString()} Xu
+                            </span>
+                            {rewardCard ? (
+                              <span className="px-2 py-0.5 rounded bg-sky-400/15 border border-sky-300/45 text-sky-200 font-bold">
+                                {rewardCard.shortName} · OVR{' '}
+                                {formatCardOvr(rewardCard)}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!unlocked || claimed}
+                          onClick={() => {
+                            const res = onClaimWinterMilestone(m.id);
+                            if (res) {
+                              setPackResult({
+                                cards: res.cards,
+                                duplicateRefund: res.duplicateRefund,
+                                packName: `${isVi ? m.titleVi : m.titleEn} (+${m.rewardCoins.toLocaleString()} Xu)`,
+                              });
+                            }
+                          }}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap shrink-0 ${
+                            claimed
+                              ? 'bg-slate-800 text-emerald-400 cursor-default'
+                              : unlocked
+                              ? 'bg-sky-300 hover:bg-sky-200 text-slate-950 cursor-pointer'
+                              : 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {claimed
+                            ? isVi
+                              ? 'Đã Nhận ✓'
+                              : 'Claimed ✓'
+                            : unlocked
+                            ? isVi
+                              ? 'Nhận Thưởng'
+                              : 'Claim'
+                            : m.reqPacks
+                            ? `${packProgress}/${packTarget} Pack`
+                            : isVi
+                            ? 'Chưa mở khóa'
+                            : 'Locked'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Winter & Admin Infinity Collection Preview */}
+            <div className="space-y-3">
+              <h3 className="font-display text-lg font-extrabold text-cyan-200 tracking-wide">
+                {isVi
+                  ? 'BỘ SƯU TẬP WINTER FROST & ADMIN INFINITY (∞)'
+                  : 'WINTER FROST & ADMIN INFINITY (∞) COLLECTION'}
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                {Object.values(FC_PLAYERS)
+                  .filter(
+                    (c) =>
+                      c.rarity === 'winter' || c.rarity === 'admin_infinity',
+                  )
+                  .sort((a, b) => getCardSortPower(b) - getCardSortPower(a))
+                  .map((card) => {
+                    const owned = club.ownedIds.includes(card.id);
+                    return (
+                      <FcCardBadge
+                        key={`showcase-${card.id}`}
+                        card={card}
+                        lang={lang}
+                        compact
+                        selected={owned}
+                        equippedLabel={
+                          owned
+                            ? isVi
+                              ? 'Đã Sở Hữu ✓'
+                              : 'Owned ✓'
+                            : isVi
+                            ? 'Chưa Sở Hữu'
+                            : 'Locked'
+                        }
+                      />
+                    );
+                  })}
+              </div>
             </div>
           </div>
         ) : tab === 'market' ? (
@@ -772,7 +1158,7 @@ export function FcStoreModal({
                               >
                                 <div className="flex items-center justify-between gap-1">
                                   <span className="font-display text-lg font-extrabold text-amber-300 leading-none">
-                                    {c.ovr}
+                                    {formatCardOvr(c)}
                                   </span>
                                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-200">
                                     {c.position}
@@ -799,7 +1185,8 @@ export function FcStoreModal({
                                 {isVi ? 'Đang chọn bán:' : 'Selected Card:'}
                               </div>
                               <div className="text-sm font-extrabold text-white">
-                                {selectedSellCard.name} ({selectedSellCard.ovr} OVR)
+                                {selectedSellCard.name} (
+                                {formatCardOvr(selectedSellCard)} OVR)
                               </div>
                             </div>
                             <span className="px-2 py-0.5 rounded bg-violet-500/20 border border-violet-400/40 text-violet-200 text-[11px] font-bold">
@@ -1026,8 +1413,8 @@ export function FcStoreModal({
               <div>
                 <p className="text-slate-200 font-semibold">
                   {lang === 'vi'
-                    ? 'Hoàn thành nhiệm vụ khi thi đấu (Đấu 3D, Đấu Bot, Penalty, Thử Thách, Tập Sút & Làm GK) để nhận Xu thưởng!'
-                    : 'Complete missions across 3D Match, Vs Bot, Penalty, Challenge, Practice & GK modes to earn big Coin rewards!'}
+                    ? 'Hoàn thành nhiệm vụ để nhận thưởng lớn từ 75.000 đến 600.000 Xu — nhiệm vụ càng khó thưởng càng khủng!'
+                    : 'Complete missions to earn 75,000–600,000 Coins — harder missions pay much bigger rewards!'}
                 </p>
                 <p className="font-mono-tabular text-slate-400 mt-0.5">
                   {lang === 'vi'
@@ -1081,9 +1468,38 @@ export function FcStoreModal({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <h4 className="text-sm font-bold text-white">
-                            {lang === 'vi' ? m.titleVi : m.titleEn}
-                          </h4>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className="text-sm font-bold text-white">
+                              {lang === 'vi' ? m.titleVi : m.titleEn}
+                            </h4>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                                m.difficulty === 'extreme'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-400/35'
+                                  : m.difficulty === 'hard'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/35'
+                                  : m.difficulty === 'medium'
+                                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/35'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/35'
+                              }`}
+                            >
+                              {m.difficulty === 'extreme'
+                                ? lang === 'vi'
+                                  ? 'Siêu Khó'
+                                  : 'Extreme'
+                                : m.difficulty === 'hard'
+                                ? lang === 'vi'
+                                  ? 'Khó'
+                                  : 'Hard'
+                                : m.difficulty === 'medium'
+                                ? lang === 'vi'
+                                  ? 'Trung Bình'
+                                  : 'Medium'
+                                : lang === 'vi'
+                                ? 'Dễ'
+                                : 'Easy'}
+                            </span>
+                          </div>
                           <p className="text-xs text-slate-300 mt-0.5">
                             {lang === 'vi' ? m.descVi : m.descEn}
                           </p>
@@ -1176,9 +1592,38 @@ export function FcStoreModal({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <h4 className="text-sm font-bold text-white">
-                            {lang === 'vi' ? m.titleVi : m.titleEn}
-                          </h4>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className="text-sm font-bold text-white">
+                              {lang === 'vi' ? m.titleVi : m.titleEn}
+                            </h4>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                                m.difficulty === 'extreme'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-400/35'
+                                  : m.difficulty === 'hard'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/35'
+                                  : m.difficulty === 'medium'
+                                  ? 'bg-sky-500/20 text-sky-300 border border-sky-400/35'
+                                  : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/35'
+                              }`}
+                            >
+                              {m.difficulty === 'extreme'
+                                ? lang === 'vi'
+                                  ? 'Siêu Khó'
+                                  : 'Extreme'
+                                : m.difficulty === 'hard'
+                                ? lang === 'vi'
+                                  ? 'Khó'
+                                  : 'Hard'
+                                : m.difficulty === 'medium'
+                                ? lang === 'vi'
+                                  ? 'Trung Bình'
+                                  : 'Medium'
+                                : lang === 'vi'
+                                ? 'Dễ'
+                                : 'Easy'}
+                            </span>
+                          </div>
                           <p className="text-xs text-slate-300 mt-0.5">
                             {lang === 'vi' ? m.descVi : m.descEn}
                           </p>
@@ -1260,8 +1705,16 @@ export function FcStoreModal({
                   </button>
                   <span className="font-mono-tabular text-xs font-bold text-white">
                     {lang === 'vi'
-                      ? `Tổng OVR: ${squadOvr} / ${isAdmin || squadOvr > 150 ? 200 : 150}`
-                      : `Team OVR: ${squadOvr} / ${isAdmin || squadOvr > 150 ? 200 : 150}`}
+                      ? `Tổng OVR: ${squadOvrLabel}${
+                          lineupHasInfinity
+                            ? ''
+                            : ` / ${isAdmin || squadOvr > 150 ? 200 : 150}`
+                        }`
+                      : `Team OVR: ${squadOvrLabel}${
+                          lineupHasInfinity
+                            ? ''
+                            : ` / ${isAdmin || squadOvr > 150 ? 200 : 150}`
+                        }`}
                   </span>
                 </div>
               </div>
@@ -1299,8 +1752,8 @@ export function FcStoreModal({
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h3 className="text-xs font-bold text-slate-300">
                   {lang === 'vi'
-                    ? `Kho Cầu Thủ Sở Hữu (${ownedCards.length}) — Bấm để đưa vào vị trí "${slotLabels[selectedSlot]}"`
-                    : `Owned Players (${ownedCards.length}) — Click to assign to "${slotLabels[selectedSlot]}"`}
+                    ? `${isAdmin ? `ADMIN FULL CẦU THỦ (${ownedCards.length}/${ALL_FC_PLAYER_IDS.length})` : `Kho Cầu Thủ Sở Hữu (${ownedCards.length})`} — Bấm để đưa vào vị trí "${slotLabels[selectedSlot]}"`
+                    : `${isAdmin ? `ADMIN FULL ROSTER (${ownedCards.length}/${ALL_FC_PLAYER_IDS.length})` : `Owned Players (${ownedCards.length})`} — Click to assign to "${slotLabels[selectedSlot]}"`}
                 </h3>
 
                 <div className="flex flex-wrap items-center gap-1">

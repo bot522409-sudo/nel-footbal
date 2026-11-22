@@ -494,51 +494,128 @@ export function animateMatchPlayer(
     p.diveTimer = Math.max(0, p.diveTimer - dt);
     const prog = THREE.MathUtils.clamp(1 - p.diveTimer / 0.78, 0, 1);
     const crouch = prog < 0.14 ? Math.sin((prog / 0.14) * Math.PI) : 0;
-    const stretch = THREE.MathUtils.smoothstep(prog, 0.06, 0.34);
-    const airT = THREE.MathUtils.clamp((prog - 0.08) / 0.48, 0, 1);
+    const launchMix = THREE.MathUtils.smoothstep(prog, 0.06, 0.28);
+    const airT = THREE.MathUtils.clamp((prog - 0.08) / 0.50, 0, 1);
     const airArc = Math.sin(airT * Math.PI);
-    const plunge = THREE.MathUtils.smoothstep(prog, 0.48, 0.88);
+    const plunge = THREE.MathUtils.smoothstep(prog, 0.50, 0.86);
+    const recover = THREE.MathUtils.smoothstep(prog, 0.84, 1.0);
     const turfBounce =
       prog > 0.56 && prog < 0.84
-        ? Math.sin(((prog - 0.56) / 0.28) * Math.PI) * 0.085 * (1 - prog * 0.4)
+        ? Math.sin(((prog - 0.56) / 0.28) * Math.PI) * 0.075 * (1 - prog * 0.35)
         : 0;
 
     const rollSign = Math.sign(p.diveDir || 1);
     const diveSide = -rollSign;
 
+    const airBodyY = 0.92 - crouch * 0.18 + airArc * 0.58;
+    const slideBodyY = THREE.MathUtils.lerp(0.24, 0.31, recover);
     p.mesh.bodyPivot.position.y =
-      THREE.MathUtils.lerp(0.92 - crouch * 0.14 + airArc * 0.52, 0.21, plunge) + turfBounce;
+      THREE.MathUtils.lerp(airBodyY, slideBodyY, plunge) + turfBounce;
     p.mesh.bodyPivot.rotation.z =
-      rollSign * THREE.MathUtils.lerp(1.46, 1.56, plunge) * stretch;
+      rollSign *
+      THREE.MathUtils.lerp(1.42, THREE.MathUtils.lerp(1.52, 1.18, recover), plunge) *
+      launchMix;
+    // Open chest slightly toward the incoming ball during mid-air flight, then roll onto hip on slide
     p.mesh.bodyPivot.rotation.y =
-      rollSign * 0.24 * Math.sin(THREE.MathUtils.clamp(prog / 0.75, 0, 1) * Math.PI);
-    p.mesh.bodyPivot.rotation.x = THREE.MathUtils.lerp(0.14, 0.38, plunge) * stretch;
+      rollSign *
+      (0.28 * Math.sin(airT * Math.PI) - 0.14 * plunge) *
+      launchMix;
+    p.mesh.bodyPivot.rotation.x =
+      crouch * 0.32 + THREE.MathUtils.lerp(0.08, 0.24, plunge) * launchMix;
 
+    // Keep GK eyes locked forward on the ball
     p.mesh.headGroup.rotation.set(
-      -0.28 * stretch,
-      -rollSign * 0.18 * stretch,
-      -rollSign * 0.58 * stretch,
+      0.08 * launchMix - crouch * 0.18,
+      -rollSign * 0.22 * launchMix,
+      -rollSign * THREE.MathUtils.lerp(0.68, 0.42, recover) * launchMix,
     );
 
-    const leadArmRz = diveSide * THREE.MathUtils.lerp(2.94, 2.52, plunge);
-    const trailArmRz = -diveSide * THREE.MathUtils.lerp(2.82, 2.42, plunge);
-    const leadArmRx = THREE.MathUtils.lerp(0.34, 0.58, plunge);
-    const trailArmRx = THREE.MathUtils.lerp(0.52, 0.74, plunge);
+    // Arms coil briefly, then snap into full straight-elbow reach toward the corner
+    const leadArmRz = diveSide * THREE.MathUtils.lerp(2.92, 2.48, plunge);
+    const trailArmRz = -diveSide * THREE.MathUtils.lerp(2.74, 2.28, plunge);
+    const leadArmRx = THREE.MathUtils.lerp(0.24, 0.42, plunge);
+    const trailArmRx = THREE.MathUtils.lerp(0.32, 0.52, plunge);
+    const coilArmRx = -0.78;
+    const elbowBend = THREE.MathUtils.lerp(
+      -0.65,
+      THREE.MathUtils.lerp(-0.04, -0.56, plunge),
+      launchMix,
+    );
 
     if (diveSide > 0) {
-      p.mesh.rightArm.rotation.set(leadArmRx, 0, leadArmRz);
-      p.mesh.leftArm.rotation.set(trailArmRx, 0, trailArmRz);
-      p.mesh.rightLeg.rotation.set(THREE.MathUtils.lerp(-0.34, -0.18, plunge), 0, -0.12);
-      p.mesh.leftLeg.rotation.set(THREE.MathUtils.lerp(0.28, 0.16, plunge), 0, 0.18);
+      p.mesh.rightArm.rotation.set(
+        THREE.MathUtils.lerp(coilArmRx, leadArmRx, launchMix),
+        0,
+        THREE.MathUtils.lerp(0.55, leadArmRz, launchMix),
+      );
+      p.mesh.leftArm.rotation.set(
+        THREE.MathUtils.lerp(coilArmRx, trailArmRx, launchMix),
+        0,
+        THREE.MathUtils.lerp(-0.55, trailArmRz, launchMix),
+      );
+      p.mesh.rightLeg.rotation.set(
+        crouch * -0.55 + THREE.MathUtils.lerp(-0.42, -0.22, plunge) * launchMix,
+        0,
+        -0.12,
+      );
+      p.mesh.leftLeg.rotation.set(
+        crouch * -0.55 + THREE.MathUtils.lerp(0.32, 0.12, plunge) * launchMix,
+        0,
+        0.18,
+      );
+      if (p.mesh.rightKneePivot) {
+        p.mesh.rightKneePivot.rotation.set(
+          crouch * 0.92 + THREE.MathUtils.lerp(0.76, 0.98, plunge) * launchMix,
+          0,
+          0,
+        );
+      }
+      if (p.mesh.leftKneePivot) {
+        p.mesh.leftKneePivot.rotation.set(
+          crouch * 0.92 + THREE.MathUtils.lerp(0.14, 0.58, plunge) * launchMix,
+          0,
+          0,
+        );
+      }
     } else {
-      p.mesh.leftArm.rotation.set(leadArmRx, 0, leadArmRz);
-      p.mesh.rightArm.rotation.set(trailArmRx, 0, trailArmRz);
-      p.mesh.leftLeg.rotation.set(THREE.MathUtils.lerp(-0.34, -0.18, plunge), 0, 0.12);
-      p.mesh.rightLeg.rotation.set(THREE.MathUtils.lerp(0.28, 0.16, plunge), 0, -0.18);
+      p.mesh.leftArm.rotation.set(
+        THREE.MathUtils.lerp(coilArmRx, leadArmRx, launchMix),
+        0,
+        THREE.MathUtils.lerp(-0.55, leadArmRz, launchMix),
+      );
+      p.mesh.rightArm.rotation.set(
+        THREE.MathUtils.lerp(coilArmRx, trailArmRx, launchMix),
+        0,
+        THREE.MathUtils.lerp(0.55, trailArmRz, launchMix),
+      );
+      p.mesh.leftLeg.rotation.set(
+        crouch * -0.55 + THREE.MathUtils.lerp(-0.42, -0.22, plunge) * launchMix,
+        0,
+        0.12,
+      );
+      p.mesh.rightLeg.rotation.set(
+        crouch * -0.55 + THREE.MathUtils.lerp(0.32, 0.12, plunge) * launchMix,
+        0,
+        -0.18,
+      );
+      if (p.mesh.leftKneePivot) {
+        p.mesh.leftKneePivot.rotation.set(
+          crouch * 0.92 + THREE.MathUtils.lerp(0.76, 0.98, plunge) * launchMix,
+          0,
+          0,
+        );
+      }
+      if (p.mesh.rightKneePivot) {
+        p.mesh.rightKneePivot.rotation.set(
+          crouch * 0.92 + THREE.MathUtils.lerp(0.14, 0.58, plunge) * launchMix,
+          0,
+          0,
+        );
+      }
     }
-    if (p.mesh.leftKneePivot) p.mesh.leftKneePivot.rotation.set(0.22 * stretch, 0, 0);
-    if (p.mesh.rightKneePivot) p.mesh.rightKneePivot.rotation.set(0.22 * stretch, 0, 0);
-    p.mesh.setAuraState(0, false, false, 'none', elapsedSec);
+    if (p.mesh.leftElbowPivot) p.mesh.leftElbowPivot.rotation.set(elbowBend, 0, 0);
+    if (p.mesh.rightElbowPivot) p.mesh.rightElbowPivot.rotation.set(elbowBend, 0, 0);
+    p.mesh.setAuraState(1.15 * airArc, airArc > 0.2, true, runningAuraId, elapsedSec);
     return;
   }
 

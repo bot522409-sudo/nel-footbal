@@ -50,6 +50,7 @@ interface OnlineArenaModalProps {
   onRefreshPresence: () => void;
   onCancelWait: () => void;
   onOpenAuthUpgrade: () => void;
+  onUpdateGuestName?: (name: string) => void;
   onClose: () => void;
 }
 
@@ -115,6 +116,7 @@ export function OnlineArenaModal({
   onRefreshPresence,
   onCancelWait,
   onOpenAuthUpgrade,
+  onUpdateGuestName,
   onClose,
 }: OnlineArenaModalProps) {
   const [tab, setTab] = useState<'duel' | 'leaderboard'>(initialTab);
@@ -125,9 +127,15 @@ export function OnlineArenaModal({
   const [challengedIds, setChallengedIds] = useState<Record<string, boolean>>(
     {},
   );
+  const [guestNameDraft, setGuestNameDraft] = useState(displayUsername);
+  const [guestRenameSaved, setGuestRenameSaved] = useState(false);
 
   const isVi = lang === 'vi';
   const squadOvr = computeSquadOvr(club.lineupIds);
+
+  useEffect(() => {
+    setGuestNameDraft(displayUsername);
+  }, [displayUsername]);
 
   useEffect(() => {
     setLbLoading(true);
@@ -153,6 +161,7 @@ export function OnlineArenaModal({
         elo: cp.elo,
         kickerId: cp.kickerId as OnlinePlayerBadge['kickerId'],
         gkId: cp.gkId as OnlinePlayerBadge['gkId'],
+        isGuest: false,
         activity: cp.activity,
         modeLabel: cp.modeLabel,
         waitingRoomCode: cp.roomCode,
@@ -284,26 +293,62 @@ export function OnlineArenaModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {!account ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/40">
-              <div className="text-xs text-amber-100">
-                <strong className="text-amber-300">
+            <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-amber-500/15 border border-amber-400/40">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-amber-100">
+                  <strong className="text-amber-300">
+                    {isVi
+                      ? 'Đấu Online Miễn Đăng Nhập (Nick Khách)!'
+                      : 'Guest Online 1v1 Enabled!'}
+                  </strong>{' '}
                   {isVi
-                    ? 'Bạn đang chơi bằng nick Khách!'
-                    : 'Playing as Guest!'}
-                </strong>{' '}
-                {isVi
-                  ? 'Tạo tài khoản với nick này để lưu ELO, Xu & lên Bảng Xếp Hạng toàn cầu.'
-                  : 'Create an account with this profile to save ELO, Coins & climb the Leaderboard.'}
+                    ? 'Bạn chưa đăng nhập vẫn có thể ghép trận, tạo phòng & thách đấu mọi người chơi ngay. Đăng nhập nếu muốn lưu Xu & ELO dài lâu.'
+                    : 'Guests can Quick Match, create rooms & challenge anyone right away. Sign in anytime to save Coins & ELO.'}
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenAuthUpgrade}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs cursor-pointer shrink-0"
+                >
+                  {isVi
+                    ? 'Tạo tài khoản với nick này'
+                    : 'Create account with this profile'}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={onOpenAuthUpgrade}
-                className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs cursor-pointer shrink-0"
-              >
-                {isVi
-                  ? 'Tạo tài khoản với nick này'
-                  : 'Create account with this profile'}
-              </button>
+              {onUpdateGuestName ? (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-amber-400/20">
+                  <span className="text-[11px] font-bold text-amber-200">
+                    {isVi ? 'Tên hiển thị khi đấu:' : 'Guest Display Name:'}
+                  </span>
+                  <input
+                    type="text"
+                    value={guestNameDraft}
+                    maxLength={24}
+                    onChange={(e) => setGuestNameDraft(e.target.value)}
+                    placeholder="Khach_1234"
+                    className="px-2.5 py-1 rounded-lg bg-slate-950 border border-white/15 text-xs font-bold text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = guestNameDraft.trim();
+                      if (trimmed.length < 2) return;
+                      onUpdateGuestName(trimmed);
+                      setGuestRenameSaved(true);
+                      window.setTimeout(() => setGuestRenameSaved(false), 1800);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-[11px] cursor-pointer"
+                  >
+                    {guestRenameSaved
+                      ? isVi
+                        ? 'Đã đổi tên ✓'
+                        : 'Saved ✓'
+                      : isVi
+                      ? 'Đổi tên Khách'
+                      : 'Update Name'}
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -556,6 +601,11 @@ export function OnlineArenaModal({
                                 @{p.username}
                                 {isMe ? (isVi ? ' (Bạn)' : ' (You)') : ''}
                               </span>
+                              {p.isGuest || p.playerId.startsWith('guest_') ? (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/40 text-[10px] font-bold text-amber-200">
+                                  {isVi ? 'Khách' : 'Guest'}
+                                </span>
+                              ) : null}
                               <span
                                 className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${badge.cls}`}
                               >

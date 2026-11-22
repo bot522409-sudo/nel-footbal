@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   CloudUpload,
   ExternalLink,
-  KeyRound,
   LogIn,
   ShieldCheck,
   Sparkles,
@@ -23,11 +22,41 @@ import {
 
 export type AuthModalInitialView = 'choice' | 'register' | 'login' | 'upgrade_guest';
 
+function GoogleLogoIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path
+        fill="#EA4335"
+        d="M12 5.04c1.94 0 3.51.68 4.6 1.72l3.43-3.43C17.95 1.39 15.23.25 12 .25 7.31.25 3.26 2.94 1.29 6.86l3.99 3.1C6.24 7.09 8.88 5.04 12 5.04z"
+      />
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58l3.72 2.89c2.18-2.01 3.7-4.96 3.7-8.71z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.28 14.04A7.18 7.18 0 0 1 4.9 12c0-.71.13-1.4.38-2.04l-3.99-3.1A11.73 11.73 0 0 0 .25 12c0 1.91.46 3.71 1.29 5.31l3.74-3.27z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 23.75c3.24 0 5.96-1.07 7.95-2.9l-3.72-2.89c-1.07.72-2.45 1.15-4.23 1.15-3.12 0-5.76-2.05-6.72-4.87l-3.74 3.27C3.49 21.31 7.45 23.75 12 23.75z"
+      />
+    </svg>
+  );
+}
+
 interface AuthGateModalProps {
   lang: Language;
   club: FcClubState;
   hasUnsavedGuestProgress: boolean;
   initialView: AuthModalInitialView;
+  initialError?: AuthActionError | null;
   canDismissToGuest: boolean;
   onSuccess: (profile: OnlineAccountProfile) => void;
   onContinueAsGuest: () => void;
@@ -39,6 +68,7 @@ export function AuthGateModal({
   club,
   hasUnsavedGuestProgress,
   initialView,
+  initialError = null,
   canDismissToGuest,
   onSuccess,
   onContinueAsGuest,
@@ -52,7 +82,7 @@ export function AuthGateModal({
     hasUnsavedGuestProgress || initialView === 'upgrade_guest',
   );
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<AuthActionError | null>(null);
+  const [error, setError] = useState<AuthActionError | null>(initialError);
 
   const squadOvr = computeSquadOvr(club.lineupIds);
   const isVi = lang === 'vi';
@@ -135,8 +165,8 @@ export function AuthGateModal({
                   ? '2. ĐĂNG NHẬP TÀI KHOẢN'
                   : '2. LOG IN'
                 : isVi
-                ? 'SÚT PHẠT 3D ONLINE'
-                : 'FREE KICK FC ONLINE'}
+                ? 'NEL FOOTBALL ONLINE'
+                : 'NEL FOOTBALL ONLINE'}
             </h2>
           </div>
 
@@ -213,8 +243,8 @@ export function AuthGateModal({
                   </div>
                   <div className="text-xs text-slate-300 truncate">
                     {isVi
-                      ? 'Đặt tên tài khoản & mật khẩu để chơi online'
-                      : 'Choose a username & password for online play'}
+                      ? 'Đặt tên tài khoản & mật khẩu để lưu Xu, thẻ & ELO đa thiết bị'
+                      : 'Choose a username & password to save Coins, cards & ELO'}
                   </div>
                 </div>
               </div>
@@ -249,7 +279,7 @@ export function AuthGateModal({
 
             <div className="pt-2 flex items-center gap-2 text-[11px] text-slate-400">
               <div className="flex-1 h-px bg-white/10" />
-              <span>{isVi ? 'Hoặc' : 'Or'}</span>
+              <span>{isVi ? 'Hoặc đăng nhập 1 chạm' : 'Or 1-tap Sign In'}</span>
               <div className="flex-1 h-px bg-white/10" />
             </div>
 
@@ -257,11 +287,17 @@ export function AuthGateModal({
               type="button"
               disabled={submitting}
               onClick={handleGoogleSignIn}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-white/15 text-xs font-bold text-slate-100 transition-colors cursor-pointer disabled:opacity-60"
+              className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-sm font-extrabold shadow-md transition-colors cursor-pointer disabled:opacity-60"
             >
-              <KeyRound size={14} className="text-amber-300" />
+              <GoogleLogoIcon size={18} />
               <span>
-                {isVi ? 'Đăng nhập nhanh bằng Google' : 'Quick Sign In with Google'}
+                {submitting
+                  ? isVi
+                    ? 'Đang mở Google...'
+                    : 'Opening Google...'
+                  : isVi
+                  ? 'Đăng nhập nhanh với Google'
+                  : 'Quick Sign In with Google'}
               </span>
             </button>
 
@@ -290,6 +326,32 @@ export function AuthGateModal({
                 {isVi ? 'Quay lại 2 lựa chọn' : 'Back to Create / Log In'}
               </span>
             </button>
+
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleGoogleSignIn}
+              className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 text-xs sm:text-sm font-extrabold shadow transition-colors cursor-pointer disabled:opacity-60"
+            >
+              <GoogleLogoIcon size={17} />
+              <span>
+                {submitting
+                  ? isVi
+                    ? 'Đang kết nối Google...'
+                    : 'Connecting Google...'
+                  : isVi
+                  ? 'Đăng nhập nhanh với Google'
+                  : 'Quick Sign In with Google'}
+              </span>
+            </button>
+
+            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+              <div className="flex-1 h-px bg-white/10" />
+              <span>
+                {isVi ? 'hoặc dùng tên tài khoản' : 'or use username'}
+              </span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">

@@ -32,6 +32,7 @@ import {
   FC_CLUB_STORAGE_KEY,
   FC_PLAYERS,
   FcClubState,
+  getCardSortPower,
 } from '../game/fcData';
 import {
   auth,
@@ -220,7 +221,7 @@ function getTopOwnedCardInfo(club: FcClubState): { name: string; ovr: number } {
   let best = FC_PLAYERS[club.lineupIds[4]] ?? FC_PLAYERS['silver_st_1'];
   for (const id of club.ownedIds) {
     const card = FC_PLAYERS[id];
-    if (card && card.ovr > (best?.ovr ?? 0)) {
+    if (card && (!best || getCardSortPower(card) > getCardSortPower(best))) {
       best = card;
     }
   }
@@ -273,6 +274,28 @@ function mapFirebaseAuthError(error: unknown): AuthActionError {
         code,
         messageVi: 'Bạn đã đóng cửa sổ đăng nhập Google.',
         messageEn: 'Google sign-in popup was closed.',
+      };
+    case 'auth/popup-blocked':
+      return {
+        code,
+        messageVi:
+          'Trình duyệt đang chặn cửa sổ bật lên (popup) Google. Hãy cho phép popup cho trang này rồi bấm lại Đăng nhập với Google.',
+        messageEn:
+          'Your browser blocked the Google sign-in popup. Allow popups for this site and click Sign in with Google again.',
+      };
+    case 'auth/cancelled-popup-request':
+      return {
+        code,
+        messageVi: 'Yêu cầu đăng nhập Google trước đó đã bị hủy. Vui lòng bấm lại nút Google.',
+        messageEn: 'Previous Google sign-in request was cancelled. Please click Google Sign-In again.',
+      };
+    case 'auth/unauthorized-domain':
+      return {
+        code,
+        messageVi:
+          'Tên miền hiện tại chưa được cấp phép trong Firebase Console (Authentication → Settings → Authorized domains).',
+        messageEn:
+          'This domain is not yet authorized in Firebase Console (Authentication → Settings → Authorized domains).',
       };
     case 'auth/network-request-failed':
       return {
@@ -1444,5 +1467,153 @@ export function subscribeCloudOnlinePresence(
     },
   );
 }
+
+export interface VisitSessionCloudRecord {
+  sessionId: string;
+  playerId: string;
+  username: string;
+  accountType: 'guest' | 'account';
+  modeLabel: string;
+  startedAtMs: number;
+  lastSeenAtMs: number;
+  endedAtMs: number | null;
+  durationSec: number;
+  isOnline: boolean;
+}
+
+const createdVisitSessionIds = new Set<string>();
+
+function sanitizeVisitId(raw: string, fallback: string): string {
+  const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+  return cleaned.length > 0 ? cleaned : fallback;
+}
+
+export async function upsertCloudVisitSession(params: {
+  sessionId: string;
+  clientToken: string;
+  playerId: string;
+  username: string;
+  accountType: 'guest' | 'account';
+  modeLabel: string;
+  startedAtMs: number;
+  ended?: boolean;
+}): Promise<void> {
+  if (!/^visit_[0-9]+_[a-zA-Z0-9]+$/.test(params.sessionId)) return;
+  const token = sanitizeVisitId(params.clientToken, 'tok_default_session');
+  if (token.length < 12) return;
+
+  const now = Date.now();
+  const startedAtMs = Math.max(1_700_000_000_000, Math.min(now, Math.round(params.startedAtMs)));
+  const lastSeenAtMs = Math.max(startedAtMs, now);
+  const endedAtMs = params.ended ? lastSeenAtMs : null;
+  const durationSec = Math.max(
+    0,
+    Math.min(864_000, Math.round((lastSeenAtMs - startedAtMs) / 1000)),
+  );
+  const safePlayerId = sanitizeVisitId(params.playerId, 'Khach');
+  const safeUsername = (params.username.trim() || 'Khách').slice(0, 32);
+  const safeModeLabel = (params.modeLabel.trim() || 'Chơi Trải Nghiệm').slice(0, 64);
+
+  const ref = doc(db, 'visit_sessions', params.sessionId);
+  const mutablePayload = {
+    playerId: safePlayerId,
+    username: safeUsername,
+    accountType: params.accountType,
+    modeLabel: safeModeLabel,
+    lastSeenAtMs,
+    endedAtMs,
+    durationSec,
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    if (createdVisitSessionIds.has(params.sessionId)) {
+      await updateDoc(ref, mutablePayload);
+    } else {
+      await setDoc(ref, {
+        sessionId: params.sessionId,
+        clientToken: token,
+        startedAtMs,
+        ...mutablePayload,
+        createdAt: serverTimestamp(),
+      });
+      createdVisitSessionIds.add(params.sessionId);
+    }
+  } catch {
+    // Retry with updateDoc in case document already existed in this session
+    if (!createdVisitSessionIds.has(params.sessionId)) {
+      try {
+        await updateDoc(ref, mutablePayload);
+        createdVisitSessionIds.add(params.sessionId);
+      } catch {
+        // Silent fallback: Express /api/visits/ping also persists locally
+      }
+    }
+  }
+}
+
+export function subscribeVisitSessionsForAdmin(
+  onUpdate: (sessions: VisitSessionCloudRecord[]) => void,
+  onError?: (err: unknown) => void,
+): () => void {
+  if (!isCurrentUserAdmin()) {
+    return () => {};
+  }
+  const path = 'visit_sessions';
+  const q = query(
+    collection(db, path),
+    orderBy('lastSeenAtMs', 'desc'),
+    limit(200),
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      const now = Date.now();
+      const rows: VisitSessionCloudRecord[] = snap.docs.map((d) => {
+        const data = d.data();
+        const startedAtMs = Number(data.startedAtMs ?? now);
+        const lastSeenAtMs = Number(data.lastSeenAtMs ?? startedAtMs);
+        const endedAtMs =
+          typeof data.endedAtMs === 'number' ? data.endedAtMs : null;
+        return {
+          sessionId: String(data.sessionId ?? d.id),
+          playerId: String(data.playerId ?? 'Khach'),
+          username: String(data.username ?? 'Khách'),
+          accountType: data.accountType === 'account' ? 'account' : 'guest',
+          modeLabel: String(data.modeLabel ?? 'Chơi Trải Nghiệm'),
+          startedAtMs,
+          lastSeenAtMs,
+          endedAtMs,
+          durationSec: Math.max(
+            0,
+            Math.round(
+              typeof data.durationSec === 'number'
+                ? data.durationSec
+                : ((endedAtMs ?? lastSeenAtMs) - startedAtMs) / 1000,
+            ),
+          ),
+          isOnline: endedAtMs === null && now - lastSeenAtMs < 48_000,
+        };
+      });
+      onUpdate(rows);
+    },
+    (error) => {
+      if (onError) onError(error);
+    },
+  );
+}
+
+export async function clearCloudVisitSessionsForAdmin(): Promise<void> {
+  if (!isCurrentUserAdmin()) return;
+  const q = query(collection(db, 'visit_sessions'), limit(200));
+  const snap = await getDocs(q);
+  if (snap.empty) return;
+  const batch = writeBatch(db);
+  for (const d of snap.docs) {
+    batch.delete(d.ref);
+  }
+  await batch.commit();
+}
+
 
 

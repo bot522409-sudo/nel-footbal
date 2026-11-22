@@ -12,14 +12,19 @@ import {
   createBallTextures,
   createContactShadowTexture,
   createFabricBumpTexture,
+  createGoalWearDecalTexture,
   createJerseyWrapTexture,
   createNetTexture,
   createPitchDetailMaps,
+  createPitchPerimeterTexture,
   createPitchTexture,
   createPlayerFaceTexture,
   createSkyDomeTexture,
+  createSnowPerimeterTexture,
+  createSnowPitchTexture,
   createSpeedAuraTexture,
   createStadiumJumbotronTexture,
+  createWinterSkyDomeTexture,
 } from './textures';
 import {
   HairStyle,
@@ -38,6 +43,8 @@ export interface ArticulatedPlayer {
   headGroup: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
+  leftElbowPivot?: THREE.Group;
+  rightElbowPivot?: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
   leftKneePivot?: THREE.Group;
@@ -75,6 +82,8 @@ export interface StadiumBundle {
   crowdFlashPositions: Float32Array;
   flagCloths: THREE.Mesh[];
   mudPuddlesGroup: THREE.Group;
+  pitchMat: THREE.MeshPhysicalMaterial;
+  setSnowSurface: (enabled: boolean) => void;
   updateGrass: (elapsedSec: number) => void;
   dispose: () => void;
 }
@@ -105,7 +114,8 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
 
   // 0. Atmospheric Stadium Night Sky Dome (encloses monumental 105x68m arena)
   const skyTex = createSkyDomeTexture();
-  textures.push(skyTex);
+  const winterSkyTex = createWinterSkyDomeTexture();
+  textures.push(skyTex, winterSkyTex);
   const skyGeo = new THREE.SphereGeometry(245, 28, 18);
   geometries.push(skyGeo);
   const skyMat = new THREE.MeshBasicMaterial({
@@ -121,25 +131,32 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
 
   // 1. Main Turf Pitch (68m x 105m FIFA full regulation + generous perimeter apron)
   const pitchTex = createPitchTexture(maxAnisotropy);
+  const snowPitchTex = createSnowPitchTexture(maxAnisotropy);
   const { bumpMap: pitchBump, roughnessMap: pitchRough } =
     createPitchDetailMaps(maxAnisotropy);
   pitchTex.repeat.set(4, 6);
+  snowPitchTex.repeat.set(4, 6);
   pitchBump.repeat.set(4, 6);
   pitchRough.repeat.set(4, 6);
-  textures.push(pitchTex, pitchBump, pitchRough);
+  textures.push(pitchTex, snowPitchTex, pitchBump, pitchRough);
 
-  const pitchGeo = new THREE.PlaneGeometry(148, 168);
+  const pitchGeo = new THREE.PlaneGeometry(PITCH_HALF_W * 2 + 8, PITCH_LENGTH + 11);
   pitchGeo.rotateX(-Math.PI / 2);
   geometries.push(pitchGeo);
 
-  const pitchMat = new THREE.MeshStandardMaterial({
+  const pitchMat = new THREE.MeshPhysicalMaterial({
     map: pitchTex,
     bumpMap: pitchBump,
-    bumpScale: 0.042,
+    bumpScale: 0.055,
     roughnessMap: pitchRough,
-    roughness: 0.88,
-    metalness: 0.02,
-    envMapIntensity: 0.42,
+    roughness: 0.92,
+    metalness: 0.0,
+    clearcoat: 0.0,
+    clearcoatRoughness: 0.65,
+    sheen: 0.12,
+    sheenRoughness: 0.92,
+    sheenColor: new THREE.Color(0x2d6a4f),
+    envMapIntensity: 0.28,
   });
   materials.push(pitchMat);
 
@@ -147,6 +164,55 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
   pitchMesh.position.set(0, 0, PITCH_HALF_L);
   pitchMesh.receiveShadow = true;
   group.add(pitchMesh);
+
+  // Synthetic deep-emerald stadium apron around playable field (toggled to snow apron in snow weather)
+  const apronTex = createPitchPerimeterTexture(maxAnisotropy);
+  const snowApronTex = createSnowPerimeterTexture(maxAnisotropy);
+  apronTex.repeat.set(16, 20);
+  snowApronTex.repeat.set(16, 20);
+  textures.push(apronTex, snowApronTex);
+  const apronGeo = new THREE.PlaneGeometry(148, 172);
+  apronGeo.rotateX(-Math.PI / 2);
+  geometries.push(apronGeo);
+  const apronMat = new THREE.MeshStandardMaterial({
+    map: apronTex,
+    roughness: 0.88,
+    metalness: 0.04,
+  });
+  materials.push(apronMat);
+  const apronMesh = new THREE.Mesh(apronGeo, apronMat);
+  apronMesh.position.set(0, -0.01, PITCH_HALF_L);
+  apronMesh.receiveShadow = true;
+  group.add(apronMesh);
+
+  // Goal-mouth, Penalty Spot & Center Circle turf wear decals for stadium match realism
+  const wearTex = createGoalWearDecalTexture();
+  textures.push(wearTex);
+  const wearMat = new THREE.MeshBasicMaterial({
+    map: wearTex,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
+  materials.push(wearMat);
+  const wearGeo = new THREE.PlaneGeometry(1, 1);
+  wearGeo.rotateX(-Math.PI / 2);
+  geometries.push(wearGeo);
+  [
+    { x: 0, z: 1.8, sx: 8.6, sz: 4.4 },
+    { x: 0, z: PITCH_LENGTH - 1.8, sx: 8.6, sz: 4.4 },
+    { x: 0, z: 11.0, sx: 2.3, sz: 2.3 },
+    { x: 0, z: PITCH_LENGTH - 11.0, sx: 2.3, sz: 2.3 },
+    { x: 0, z: PITCH_HALF_L, sx: 3.1, sz: 3.1 },
+  ].forEach((w) => {
+    const wm = new THREE.Mesh(wearGeo, wearMat);
+    wm.position.set(w.x, 0.006, w.z);
+    wm.scale.set(w.sx, 1, w.sz);
+    group.add(wm);
+  });
 
   // 1b. Instanced 3D Grass Blade Tufts across playable field (1 draw call + GPU wind sway)
   const tuftPositions: number[] = [];
@@ -176,9 +242,10 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     tuftNormals.push(0, 0.9, 0.4, 0, 0.9, 0.4, 0, 0.96, 0.25);
     tuftUvs.push(0, 0, 1, 0, 0.5, 1);
   };
-  addBlade(0, 0, 0.1, 0.018, 0.022, 0.044);
-  addBlade(-0.012, 0.008, 2.2, 0.02, 0.02, 0.039);
-  addBlade(0.013, -0.007, 4.3, 0.019, 0.021, 0.042);
+  addBlade(0, 0, 0.1, 0.018, 0.022, 0.048);
+  addBlade(-0.012, 0.008, 1.8, 0.021, 0.02, 0.041);
+  addBlade(0.013, -0.007, 3.6, 0.019, 0.021, 0.045);
+  addBlade(-0.006, -0.012, 5.1, 0.017, 0.019, 0.038);
 
   const tuftGeo = new THREE.BufferGeometry();
   tuftGeo.setAttribute(
@@ -195,8 +262,9 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
   const grassWindUniform = { value: 0 };
   const tuftMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.78,
+    roughness: 0.90,
     metalness: 0.0,
+    envMapIntensity: 0.25,
     side: THREE.DoubleSide,
   });
   tuftMat.onBeforeCompile = (shader) => {
@@ -211,9 +279,9 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
         `#include <begin_vertex>
         #ifdef USE_INSTANCING
           vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-          float sway = sin(uGrassTime * 2.1 + wp.x * 0.45 + wp.z * 0.35) * 0.28;
-          transformed.x += sway * max(0.0, transformed.y - 0.005);
-          transformed.z += sway * 0.45 * max(0.0, transformed.y - 0.005);
+          float gust = sin(uGrassTime * 2.2 + wp.x * 0.42 + wp.z * 0.32) * 0.28 + cos(uGrassTime * 1.4 - wp.z * 0.18) * 0.12;
+          transformed.x += gust * max(0.0, transformed.y - 0.004);
+          transformed.z += gust * 0.48 * max(0.0, transformed.y - 0.004);
         #endif`,
       );
   };
@@ -248,27 +316,27 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
   };
 
   const grassCoords: Array<{ x: number; z: number; s: number; ry: number }> = [];
-  for (let i = 0; i < 4200; i++) {
+  for (let i = 0; i < 9000; i++) {
     const h1 = ((i * 2654435761) >>> 0) / 4294967296;
     const h2 = (((i + 1013) * 2246822519) >>> 0) / 4294967296;
     const h3 = (((i + 4099) * 3266489917) >>> 0) / 4294967296;
     let gx: number;
     let gz: number;
-    if (i < 1400) {
-      gx = (h1 - 0.5) * 52;
-      gz = 0.6 + h2 * 27;
-    } else if (i < 2300) {
-      gx = (h1 - 0.5) * 52;
-      gz = PITCH_LENGTH - 27.6 + h2 * 27.0;
+    if (i < 3200) {
+      gx = (h1 - 0.5) * 54;
+      gz = 0.6 + h2 * 30;
+    } else if (i < 5200) {
+      gx = (h1 - 0.5) * 54;
+      gz = PITCH_LENGTH - 30.6 + h2 * 30.0;
     } else {
-      gx = (h1 - 0.5) * 81;
+      gx = (h1 - 0.5) * 82;
       gz = 0.8 + h2 * (PITCH_LENGTH - 1.6);
     }
     if (nearChalkLine(gx, gz)) continue;
     grassCoords.push({
       x: gx,
       z: gz,
-      s: 0.82 + h3 * 0.36,
+      s: 0.84 + h3 * 0.42,
       ry: h1 * Math.PI * 2,
     });
   }
@@ -279,19 +347,21 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     grassCoords.length,
   );
   const grassDummy = new THREE.Object3D();
-  const stripeLight = new THREE.Color(0x3ea855);
-  const stripeDark = new THREE.Color(0x237236);
+  const stripeLight = new THREE.Color(0x2d8743);
+  const stripeDark = new THREE.Color(0x185c29);
   const bladeColor = new THREE.Color();
+  const pitchHeightSpan = PITCH_LENGTH + 11;
   grassCoords.forEach((gc, idx) => {
     grassDummy.position.set(gc.x, 0, gc.z);
     grassDummy.rotation.set(0, gc.ry, 0);
-    grassDummy.scale.set(gc.s, gc.s * (0.9 + (idx % 3) * 0.1), gc.s);
+    grassDummy.scale.set(gc.s, gc.s * (0.9 + (idx % 3) * 0.12), gc.s);
     grassDummy.updateMatrix();
     grassMesh.setMatrixAt(idx, grassDummy.matrix);
 
-    const bandIdx = Math.floor(((gc.z + 31.5) / (168 / 6)) * 18);
+    const vCoord = (gc.z - (PITCH_HALF_L - pitchHeightSpan / 2)) / (pitchHeightSpan / 6);
+    const bandIdx = Math.floor(vCoord * 18);
     bladeColor.copy(bandIdx % 2 === 0 ? stripeLight : stripeDark);
-    bladeColor.offsetHSL(((idx % 5) - 2) * 0.004, 0.02, ((idx % 3) - 1) * 0.02);
+    bladeColor.offsetHSL(((idx % 7) - 3) * 0.004, 0.03, ((idx % 4) - 1.5) * 0.02);
     grassMesh.setColorAt(idx, bladeColor);
   });
   grassMesh.instanceMatrix.needsUpdate = true;
@@ -300,18 +370,18 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
   grassMesh.receiveShadow = true;
   group.add(grassMesh);
 
-  // Outer stadium concrete/track surround
+  // Outer stadium concrete/athletic track surround
   const trackGeo = new THREE.PlaneGeometry(340, 340);
   trackGeo.rotateX(-Math.PI / 2);
   geometries.push(trackGeo);
   const trackMat = new THREE.MeshStandardMaterial({
-    color: 0x132030,
-    roughness: 0.9,
+    color: 0x101c2d,
+    roughness: 0.88,
     metalness: 0.08,
   });
   materials.push(trackMat);
   const trackMesh = new THREE.Mesh(trackGeo, trackMat);
-  trackMesh.position.set(0, -0.02, PITCH_HALF_L);
+  trackMesh.position.set(0, -0.024, PITCH_HALF_L);
   trackMesh.receiveShadow = true;
   group.add(trackMesh);
 
@@ -392,9 +462,10 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
 
   // 2. Crisp Chalk Pitch Markings (y = 0.015, polygonOffset prevents z-fighting)
   const lineMat = new THREE.MeshStandardMaterial({
-    color: 0xf8fafc,
-    roughness: 0.78,
+    color: 0xdbe2ea,
+    roughness: 0.94,
     metalness: 0.0,
+    envMapIntensity: 0.18,
     polygonOffset: true,
     polygonOffsetFactor: -1,
     polygonOffsetUnits: -1,
@@ -670,8 +741,8 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     map: adTex,
     emissive: 0xffffff,
     emissiveMap: adTex,
-    emissiveIntensity: 0.45,
-    roughness: 0.35,
+    emissiveIntensity: 0.22,
+    roughness: 0.58,
   });
   materials.push(adMat);
 
@@ -709,8 +780,8 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
   const neonRibbonMat = new THREE.MeshStandardMaterial({
     color: 0x10b981,
     emissive: 0x10b981,
-    emissiveIntensity: 0.88,
-    roughness: 0.3,
+    emissiveIntensity: 0.44,
+    roughness: 0.45,
   });
   const canopyMat = new THREE.MeshStandardMaterial({
     color: 0x0f172a,
@@ -822,8 +893,8 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     map: jumboTex,
     emissive: 0xffffff,
     emissiveMap: jumboTex,
-    emissiveIntensity: 0.68,
-    roughness: 0.25,
+    emissiveIntensity: 0.38,
+    roughness: 0.42,
   });
   materials.push(jumboScreenMat);
 
@@ -1032,15 +1103,15 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     metalness: 0.7,
   });
   const bulbMat = new THREE.MeshStandardMaterial({
-    color: 0xfffbeb,
-    emissive: 0xfef3c7,
-    emissiveIntensity: 2.6,
-    roughness: 0.2,
+    color: 0xfef3c7,
+    emissive: 0xfde68a,
+    emissiveIntensity: 1.65,
+    roughness: 0.25,
   });
   const beamMat = new THREE.MeshBasicMaterial({
     color: 0xfef3c7,
     transparent: true,
-    opacity: 0.045,
+    opacity: 0.026,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -1136,6 +1207,27 @@ export function createStadium(maxAnisotropy: number): StadiumBundle {
     crowdFlashPositions,
     flagCloths,
     mudPuddlesGroup,
+    pitchMat,
+    setSnowSurface: (enabled: boolean) => {
+      pitchMat.map = enabled ? snowPitchTex : pitchTex;
+      pitchMat.bumpScale = enabled ? 0.095 : 0.055;
+      pitchMat.sheen = enabled ? 0.0 : 0.12;
+      pitchMat.sheenColor.setHex(enabled ? 0xdbeafe : 0x2d6a4f);
+      pitchMat.needsUpdate = true;
+
+      apronMat.map = enabled ? snowApronTex : apronTex;
+      apronMat.needsUpdate = true;
+
+      lineMat.color.setHex(enabled ? 0xf97316 : 0xdbe2ea);
+      tuftMat.color.setHex(enabled ? 0xdbeafe : 0xffffff);
+      grassMesh.visible = !enabled;
+      wearMat.opacity = enabled ? 0.16 : 0.72;
+      trackMat.color.setHex(enabled ? 0xcbd5e1 : 0x101c2d);
+
+      skyMat.map = enabled ? winterSkyTex : skyTex;
+      skyMat.color.setHex(0xffffff);
+      skyMat.needsUpdate = true;
+    },
     updateGrass: (elapsedSec: number) => {
       grassWindUniform.value = elapsedSec;
     },
@@ -1157,15 +1249,15 @@ function createDeformableNet(maxAnisotropy: number): DeformableNet {
   const backGeo = new THREE.PlaneGeometry(
     GOAL_HALF_WIDTH * 2,
     GOAL_HEIGHT,
-    24,
-    12,
+    28,
+    14,
   );
-  const sideGeo = new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_HEIGHT, 10, 12);
+  const sideGeo = new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_HEIGHT, 12, 14);
   const topGeo = new THREE.PlaneGeometry(
     GOAL_HALF_WIDTH * 2,
     GOAL_DEPTH,
-    24,
-    10,
+    28,
+    12,
   );
   geometries.push(backGeo, sideGeo, topGeo);
 
@@ -1185,7 +1277,7 @@ function createDeformableNet(maxAnisotropy: number): DeformableNet {
     new THREE.MeshStandardMaterial({
       map: tex,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.94,
       roughness: 0.85,
       side: THREE.DoubleSide,
       depthWrite: false,
@@ -1214,10 +1306,14 @@ function createDeformableNet(maxAnisotropy: number): DeformableNet {
   topMesh.position.set(0, GOAL_HEIGHT, -GOAL_DEPTH / 2);
   group.add(topMesh);
 
-  // Store rest positions for back net ripple deformation
+  // Store rest positions for back & top net ripple deformation
   const posAttr = backGeo.attributes.position as THREE.BufferAttribute;
   const restPos = new Float32Array(posAttr.array.length);
   restPos.set(posAttr.array);
+
+  const topPosAttr = topGeo.attributes.position as THREE.BufferAttribute;
+  const topRestPos = new Float32Array(topPosAttr.array.length);
+  topRestPos.set(topPosAttr.array);
 
   let rippleTime = 99;
   let rippleX = 0;
@@ -1229,14 +1325,18 @@ function createDeformableNet(maxAnisotropy: number): DeformableNet {
     triggerRipple: (worldX: number, worldY: number, strength: number) => {
       rippleTime = 0;
       rippleX = THREE.MathUtils.clamp(worldX, -GOAL_HALF_WIDTH, GOAL_HALF_WIDTH);
-      rippleY = THREE.MathUtils.clamp(worldY - GOAL_HEIGHT / 2, -GOAL_HEIGHT / 2, GOAL_HEIGHT / 2);
-      rippleStrength = THREE.MathUtils.clamp(strength, 0.25, 0.85);
+      rippleY = THREE.MathUtils.clamp(
+        worldY - GOAL_HEIGHT / 2,
+        -GOAL_HEIGHT / 2,
+        GOAL_HEIGHT / 2,
+      );
+      rippleStrength = THREE.MathUtils.clamp(strength, 0.45, 1.45);
     },
     update: (dt: number) => {
-      if (rippleTime > 2.2) return;
+      if (rippleTime > 2.8) return;
       rippleTime += dt;
-      const decay = Math.exp(-2.8 * rippleTime);
-      const wave = Math.sin(rippleTime * 18) * 0.3 + 0.7;
+      const decay = Math.exp(-1.55 * rippleTime);
+      const snap = Math.sin(rippleTime * 21) * 0.34 + 0.82;
 
       for (let i = 0; i < posAttr.count; i++) {
         const vx = restPos[i * 3];
@@ -1244,16 +1344,55 @@ function createDeformableNet(maxAnisotropy: number): DeformableNet {
         const vz = restPos[i * 3 + 2];
 
         const dist = Math.hypot(vx - rippleX, vy - rippleY);
-        const falloff = Math.exp(-dist * 0.75);
-        // Pin corners & bottom/top frames cleanly
+        const falloff = Math.exp(-dist * 0.42);
+        const travelingWave =
+          Math.sin(dist * 2.5 - rippleTime * 23) * 0.24 + 0.85;
+        // Pin corners & bottom/top frames cleanly while letting center pocket billow
         const edgePin =
           (1 - Math.pow(Math.abs(vx) / GOAL_HALF_WIDTH, 4)) *
           (1 - Math.pow(Math.abs(vy) / (GOAL_HEIGHT / 2), 4));
 
-        const disp = -rippleStrength * falloff * decay * wave * Math.max(0, edgePin);
+        const disp =
+          -rippleStrength *
+          falloff *
+          decay *
+          snap *
+          travelingWave *
+          Math.max(0, edgePin);
         posAttr.setZ(i, vz + disp);
       }
       posAttr.needsUpdate = true;
+
+      // Top net subtle upward lift & snap when ball slams into upper/back net
+      const highBias = THREE.MathUtils.clamp(
+        (rippleY + GOAL_HEIGHT / 2) / GOAL_HEIGHT,
+        0.2,
+        1.0,
+      );
+      for (let i = 0; i < topPosAttr.count; i++) {
+        const tx = topRestPos[i * 3];
+        const ty = topRestPos[i * 3 + 1];
+        const tz = topRestPos[i * 3 + 2];
+        const distX = Math.abs(tx - rippleX);
+        const backBias = THREE.MathUtils.clamp(
+          (GOAL_DEPTH / 2 - ty) / GOAL_DEPTH,
+          0,
+          1,
+        );
+        const xPin = 1 - Math.pow(Math.abs(tx) / GOAL_HALF_WIDTH, 4);
+        const lift =
+          rippleStrength *
+          0.32 *
+          highBias *
+          Math.exp(-distX * 0.48) *
+          Math.sin(backBias * Math.PI) *
+          decay *
+          snap *
+          Math.max(0, xPin);
+        // topMesh is rotated +PI/2 around X, so local -Z maps to world +Y (upward)
+        topPosAttr.setZ(i, tz - lift);
+      }
+      topPosAttr.needsUpdate = true;
     },
     dispose: () => {
       geometries.forEach((g) => g.dispose());
@@ -1373,36 +1512,61 @@ export function createArticulatedPlayer(options: {
   const shadowTex = createContactShadowTexture();
   textures.push(jerseyWrapTex, fabricBumpTex, faceTex, shadowTex);
 
+  const isIridescentKit =
+    kitPattern === 'toty_prism' ||
+    kitPattern === 'aurora_wave' ||
+    kitPattern === 'dragon_scale' ||
+    kitPattern === 'thunder_bolt' ||
+    kitPattern === 'galaxy' ||
+    kitPattern === 'cyber' ||
+    kitPattern === 'sakura_gold';
+  const isGlowingAccent =
+    kitPattern === 'cyber' ||
+    kitPattern === 'flame' ||
+    kitPattern === 'aurora_wave' ||
+    kitPattern === 'thunder_bolt' ||
+    kitPattern === 'toty_prism';
+
   const jerseyWrapMat = new THREE.MeshPhysicalMaterial({
     map: jerseyWrapTex,
     bumpMap: fabricBumpTex,
-    bumpScale: 0.0045,
-    roughness: 0.72,
-    metalness: 0.04,
-    sheen: 0.38,
-    sheenRoughness: 0.65,
-    sheenColor: new THREE.Color('#ffffff'),
+    bumpScale: 0.0052,
+    roughness: isIridescentKit ? 0.52 : 0.68,
+    metalness: isIridescentKit ? 0.14 : 0.04,
+    sheen: 0.56,
+    sheenRoughness: 0.58,
+    sheenColor: new THREE.Color(accentColor),
+    iridescence: isIridescentKit ? 0.68 : 0.0,
+    iridescenceIOR: 1.42,
+    clearcoat: isIridescentKit ? 0.25 : 0.0,
+    clearcoatRoughness: 0.35,
   });
   const solidJerseyMat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(jerseyColor),
     bumpMap: fabricBumpTex,
-    bumpScale: 0.004,
-    roughness: 0.72,
-    metalness: 0.04,
-    sheen: 0.35,
-    sheenRoughness: 0.68,
-    sheenColor: new THREE.Color('#ffffff'),
+    bumpScale: 0.0045,
+    roughness: isIridescentKit ? 0.54 : 0.7,
+    metalness: isIridescentKit ? 0.12 : 0.04,
+    sheen: 0.5,
+    sheenRoughness: 0.62,
+    sheenColor: new THREE.Color(accentColor),
+    iridescence: isIridescentKit ? 0.52 : 0.0,
   });
-  const accentMat = new THREE.MeshStandardMaterial({
+  const accentMat = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(accentColor),
-    emissive:
-      kitPattern === 'cyber' || kitPattern === 'flame'
-        ? new THREE.Color(accentColor)
-        : 0x000000,
+    emissive: isGlowingAccent ? new THREE.Color(accentColor) : 0x000000,
     emissiveIntensity:
-      kitPattern === 'cyber' ? 0.42 : kitPattern === 'flame' ? 0.25 : 0,
-    roughness: 0.42,
-    metalness: 0.22,
+      kitPattern === 'cyber' || kitPattern === 'thunder_bolt'
+        ? 0.48
+        : kitPattern === 'aurora_wave' || kitPattern === 'toty_prism'
+        ? 0.32
+        : kitPattern === 'flame'
+        ? 0.25
+        : 0,
+    roughness: 0.28,
+    metalness: 0.48,
+    clearcoat: 0.62,
+    clearcoatRoughness: 0.18,
   });
   const captainBandMat = new THREE.MeshStandardMaterial({
     color: isStar ? 0xfbbf24 : new THREE.Color(accentColor),
@@ -1415,10 +1579,10 @@ export function createArticulatedPlayer(options: {
     color: shortsColor,
     bumpMap: fabricBumpTex,
     bumpScale: 0.003,
-    roughness: 0.74,
-    metalness: 0.03,
-    sheen: 0.25,
-    sheenRoughness: 0.75,
+    roughness: 0.72,
+    metalness: 0.04,
+    sheen: 0.32,
+    sheenRoughness: 0.72,
   });
   const faceMat = new THREE.MeshStandardMaterial({
     map: faceTex,
@@ -1432,10 +1596,11 @@ export function createArticulatedPlayer(options: {
   });
   const bootMat = new THREE.MeshPhysicalMaterial({
     color: bootColor,
-    roughness: 0.22,
-    metalness: 0.3,
-    clearcoat: 0.72,
-    clearcoatRoughness: 0.18,
+    roughness: 0.18,
+    metalness: 0.4,
+    clearcoat: 0.88,
+    clearcoatRoughness: 0.12,
+    iridescence: 0.42,
   });
   const soleMat = new THREE.MeshStandardMaterial({
     color: 0xe2e8f0,
@@ -1508,23 +1673,35 @@ export function createArticulatedPlayer(options: {
     group.add(auraMesh);
   }
 
-  // Dynamic Running & Sprint Aura (speed ring + dual tilted energy halos + twin wind trails + energy pillars)
+  // Dynamic Running & Sprint Aura (vortex disc + dual tilted energy halos + twin wind blades + swept wings + cleat speed rings)
   const runningAuraTex = createSpeedAuraTexture('#10b981', '#a7f3d0');
   textures.push(runningAuraTex);
   const runAuraGroup = new THREE.Group();
   runAuraGroup.visible = false;
   group.add(runAuraGroup);
 
-  const runDiscGeo = new THREE.PlaneGeometry(1.62, 1.62);
+  const runDiscGeo = new THREE.PlaneGeometry(1.78, 1.78);
   runDiscGeo.rotateX(-Math.PI / 2);
-  const runRingGeo = new THREE.TorusGeometry(0.48, 0.024, 8, 32);
+  const runRingGeo = new THREE.TorusGeometry(0.5, 0.026, 8, 36);
   runRingGeo.rotateX(Math.PI / 2);
-  const runRing2Geo = new THREE.TorusGeometry(0.62, 0.017, 8, 32);
-  runRing2Geo.rotateX(Math.PI / 2 - 0.34);
-  const runBladeGeo = new THREE.PlaneGeometry(0.2, 0.98);
+  const runRing2Geo = new THREE.TorusGeometry(0.68, 0.018, 8, 36);
+  runRing2Geo.rotateX(Math.PI / 2 - 0.36);
+  const runBladeGeo = new THREE.PlaneGeometry(0.24, 1.18);
   runBladeGeo.rotateX(-Math.PI / 2);
-  const runPillarGeo = new THREE.PlaneGeometry(0.14, 1.05);
-  geometries.push(runDiscGeo, runRingGeo, runRing2Geo, runBladeGeo, runPillarGeo);
+  const runWingGeo = new THREE.PlaneGeometry(0.32, 1.45);
+  runWingGeo.rotateX(-Math.PI / 2);
+  const runPillarGeo = new THREE.PlaneGeometry(0.16, 1.18);
+  const runBootRingGeo = new THREE.TorusGeometry(0.16, 0.016, 6, 20);
+  runBootRingGeo.rotateX(Math.PI / 2);
+  geometries.push(
+    runDiscGeo,
+    runRingGeo,
+    runRing2Geo,
+    runBladeGeo,
+    runWingGeo,
+    runPillarGeo,
+    runBootRingGeo,
+  );
 
   const runDiscMat = new THREE.MeshBasicMaterial({
     map: runningAuraTex,
@@ -1549,6 +1726,7 @@ export function createArticulatedPlayer(options: {
     depthWrite: false,
   });
   const runBladeMat = new THREE.MeshBasicMaterial({
+    map: runningAuraTex,
     color: 0x6ee7b7,
     transparent: true,
     opacity: 0.0,
@@ -1567,7 +1745,7 @@ export function createArticulatedPlayer(options: {
   materials.push(runDiscMat, runRingMat, runRing2Mat, runBladeMat, runPillarMat);
 
   const runDiscMesh = new THREE.Mesh(runDiscGeo, runDiscMat);
-  runDiscMesh.position.y = 0.03;
+  runDiscMesh.position.y = 0.032;
   runAuraGroup.add(runDiscMesh);
 
   const runHaloMesh = new THREE.Mesh(runRingGeo, runRingMat);
@@ -1575,26 +1753,44 @@ export function createArticulatedPlayer(options: {
   runAuraGroup.add(runHaloMesh);
 
   const runHalo2Mesh = new THREE.Mesh(runRing2Geo, runRing2Mat);
-  runHalo2Mesh.position.y = 0.42;
+  runHalo2Mesh.position.y = 0.44;
   runAuraGroup.add(runHalo2Mesh);
 
   const runBladeL = new THREE.Mesh(runBladeGeo, runBladeMat);
-  runBladeL.position.set(-0.26, 0.09, -0.48);
+  runBladeL.position.set(-0.26, 0.09, -0.58);
   runAuraGroup.add(runBladeL);
 
   const runBladeR = new THREE.Mesh(runBladeGeo, runBladeMat);
-  runBladeR.position.set(0.26, 0.09, -0.48);
+  runBladeR.position.set(0.26, 0.09, -0.58);
   runAuraGroup.add(runBladeR);
 
+  const runWingL = new THREE.Mesh(runWingGeo, runBladeMat);
+  runWingL.position.set(-0.46, 0.14, -0.68);
+  runWingL.rotation.z = 0.34;
+  runAuraGroup.add(runWingL);
+
+  const runWingR = new THREE.Mesh(runWingGeo, runBladeMat);
+  runWingR.position.set(0.46, 0.14, -0.68);
+  runWingR.rotation.z = -0.34;
+  runAuraGroup.add(runWingR);
+
   const runPillarL = new THREE.Mesh(runPillarGeo, runPillarMat);
-  runPillarL.position.set(-0.34, 0.65, -0.18);
-  runPillarL.rotation.set(-0.36, 0.4, 0.15);
+  runPillarL.position.set(-0.34, 0.68, -0.2);
+  runPillarL.rotation.set(-0.38, 0.42, 0.16);
   runAuraGroup.add(runPillarL);
 
   const runPillarR = new THREE.Mesh(runPillarGeo, runPillarMat);
-  runPillarR.position.set(0.34, 0.65, -0.18);
-  runPillarR.rotation.set(-0.36, -0.4, -0.15);
+  runPillarR.position.set(0.34, 0.68, -0.2);
+  runPillarR.rotation.set(-0.38, -0.42, -0.16);
   runAuraGroup.add(runPillarR);
+
+  const runBootRingL = new THREE.Mesh(runBootRingGeo, runRingMat);
+  runBootRingL.position.set(-0.15, 0.06, -0.05);
+  runAuraGroup.add(runBootRingL);
+
+  const runBootRingR = new THREE.Mesh(runBootRingGeo, runRingMat);
+  runBootRingR.position.set(0.15, 0.06, -0.05);
+  runAuraGroup.add(runBootRingR);
 
   // Body pivot at hip center (y = 0.92m) so diving rotates cleanly around center of mass
   const bodyPivot = new THREE.Group();
@@ -1714,6 +1910,9 @@ export function createArticulatedPlayer(options: {
     Math.PI * 0.42,
     Math.PI * 1.16,
   );
+  const sideburnGeo = new THREE.BoxGeometry(0.014, 0.056, 0.032);
+  const browRidgeGeo = new THREE.CapsuleGeometry(0.013, 0.068, 4, 8);
+  browRidgeGeo.rotateZ(Math.PI / 2);
   geometries.push(
     neckGeo,
     headGeo,
@@ -1723,6 +1922,8 @@ export function createArticulatedPlayer(options: {
     earGeo,
     hairCrownGeo,
     hairSideFadeGeo,
+    sideburnGeo,
+    browRidgeGeo,
   );
 
   const neck = new THREE.Mesh(neckGeo, skinMat);
@@ -1732,9 +1933,15 @@ export function createArticulatedPlayer(options: {
 
   const head = new THREE.Mesh(headGeo, faceMat);
   head.position.y = 0.168;
-  head.scale.set(0.90, 1.07, 0.96);
+  head.scale.set(0.91, 1.07, 0.97);
   head.castShadow = true;
   headGroup.add(head);
+
+  // Subtle sculpted athletic brow ridge
+  const browRidge = new THREE.Mesh(browRidgeGeo, skinMat);
+  browRidge.position.set(0, 0.194, 0.102);
+  browRidge.scale.set(1.0, 0.72, 0.72);
+  headGroup.add(browRidge);
 
   // Sculpted athletic jawline + defined chin to frame the face crisply
   const jaw = new THREE.Mesh(jawGeo, hasBeard ? hairMat : skinMat);
@@ -1759,6 +1966,10 @@ export function createArticulatedPlayer(options: {
     ear.position.set(ex, 0.162, -0.006);
     ear.scale.set(0.44, 1.14, 0.72);
     headGroup.add(ear);
+
+    const sideburn = new THREE.Mesh(sideburnGeo, hairMat);
+    sideburn.position.set(ex * 0.94, 0.175, 0.028);
+    headGroup.add(sideburn);
   });
 
   if (hairStyle === 'mohawk') {
@@ -1903,57 +2114,65 @@ export function createArticulatedPlayer(options: {
       armPivot.add(band);
     }
 
+    const elbowPivot = new THREE.Group();
+    elbowPivot.position.set(0, -0.215, 0);
+    elbowPivot.rotation.x = -0.18; // Natural athletic elbow bend
+    armPivot.add(elbowPivot);
+
     const elbow = new THREE.Mesh(elbowGeo, isGk ? solidJerseyMat : skinMat);
-    elbow.position.y = -0.215;
-    armPivot.add(elbow);
+    elbow.position.y = 0;
+    elbowPivot.add(elbow);
 
     const forearm = new THREE.Mesh(
       forearmGeo,
       isGk ? solidJerseyMat : skinMat,
     );
-    forearm.position.set(0, -0.315, 0.018);
-    forearm.rotation.x = -0.16; // Natural athletic elbow bend
+    forearm.position.set(0, -0.1, 0);
     forearm.castShadow = true;
-    armPivot.add(forearm);
+    elbowPivot.add(forearm);
 
     if (isGk) {
       const gCuff = new THREE.Mesh(wristStrapGeo, accentMat);
-      gCuff.position.set(0, -0.405, 0.034);
-      armPivot.add(gCuff);
+      gCuff.position.set(0, -0.19, 0.002);
+      elbowPivot.add(gCuff);
     } else {
       const wristTape = new THREE.Mesh(wristStrapGeo, accentMat);
       wristTape.scale.set(0.84, 0.62, 0.84);
-      wristTape.position.set(0, -0.4, 0.032);
-      armPivot.add(wristTape);
+      wristTape.position.set(0, -0.186, 0.002);
+      elbowPivot.add(wristTape);
     }
 
     const hand = new THREE.Mesh(palmGeo, handMat);
-    hand.position.set(0, -0.468, 0.044);
-    hand.scale.set(isGk ? 1.15 : 0.95, 1.0, 0.72);
+    hand.position.set(0, -0.256, 0.005);
+    hand.scale.set(isGk ? 1.18 : 0.95, 1.0, 0.72);
     hand.castShadow = true;
-    armPivot.add(hand);
+    elbowPivot.add(hand);
 
     const thumb = new THREE.Mesh(thumbGeo, handMat);
-    thumb.position.set(-side * 0.036, -0.448, 0.056);
+    thumb.position.set(-side * 0.036, -0.236, 0.018);
     thumb.rotation.z = side * 0.55;
-    armPivot.add(thumb);
+    elbowPivot.add(thumb);
 
     if (isGk) {
       const palm = new THREE.Mesh(glovePadGeo, accentMat);
-      palm.position.set(0, -0.468, 0.072);
-      armPivot.add(palm);
+      palm.position.set(0, -0.256, 0.034);
+      elbowPivot.add(palm);
 
       const backhand = new THREE.Mesh(gloveBackGeo, solidJerseyMat);
-      backhand.position.set(0, -0.468, 0.018);
-      armPivot.add(backhand);
+      backhand.position.set(0, -0.256, -0.02);
+      elbowPivot.add(backhand);
     }
 
     bodyPivot.add(armPivot);
-    return armPivot;
+    return { armPivot, elbowPivot };
   };
 
-  const leftArm = makeArm(-1);
-  const rightArm = makeArm(1);
+  const leftArmBuild = makeArm(-1);
+  const rightArmBuild = makeArm(1);
+  const leftArm = leftArmBuild.armPivot;
+  const rightArm = rightArmBuild.armPivot;
+  const leftElbowPivot = leftArmBuild.elbowPivot;
+  const rightElbowPivot = rightArmBuild.elbowPivot;
 
   // Legs: Muscular Thigh -> Knee -> LatheGeometry Sculpted Calf Sock & Shin Guard -> 6-Stud Pro Football Cleat
   const thighProfile = [
@@ -1964,6 +2183,7 @@ export function createArticulatedPlayer(options: {
   ];
   const thighGeo = new THREE.LatheGeometry(thighProfile, 16);
   const shortsHemGeo = new THREE.CylinderGeometry(0.084, 0.086, 0.024, 16);
+  const shortsStripeGeo = new THREE.BoxGeometry(0.014, 0.255, 0.026);
   const kneeGeo = new THREE.SphereGeometry(0.06, 12, 10);
 
   // Sculpted athletic calf + shin-guard contour in high football sock
@@ -1989,6 +2209,7 @@ export function createArticulatedPlayer(options: {
   geometries.push(
     thighGeo,
     shortsHemGeo,
+    shortsStripeGeo,
     kneeGeo,
     sockGeo,
     sockBandGeo,
@@ -2008,6 +2229,10 @@ export function createArticulatedPlayer(options: {
     thigh.position.y = -0.305;
     thigh.castShadow = true;
     legPivot.add(thigh);
+
+    const shortsStripe = new THREE.Mesh(shortsStripeGeo, accentMat);
+    shortsStripe.position.set(side * 0.092, -0.165, 0);
+    legPivot.add(shortsStripe);
 
     const shortsHem = new THREE.Mesh(shortsHemGeo, accentMat);
     shortsHem.position.y = -0.296;
@@ -2035,6 +2260,11 @@ export function createArticulatedPlayer(options: {
     const sockBand = new THREE.Mesh(sockBandGeo, accentMat);
     sockBand.position.y = -0.042;
     kneePivot.add(sockBand);
+
+    const sockBand2 = new THREE.Mesh(sockBandGeo, accentMat);
+    sockBand2.position.y = -0.095;
+    sockBand2.scale.set(0.98, 0.55, 0.98);
+    kneePivot.add(sockBand2);
 
     // Aerodynamic football boot with heel cup, ankle collar, accent stripe, soleplate & 6 studs
     const bootGroup = new THREE.Group();
@@ -2103,6 +2333,8 @@ export function createArticulatedPlayer(options: {
     headGroup,
     leftArm,
     rightArm,
+    leftElbowPivot,
+    rightElbowPivot,
     leftLeg,
     rightLeg,
     leftKneePivot,
@@ -2114,7 +2346,7 @@ export function createArticulatedPlayer(options: {
       runningAuraId: RunningAuraId = 'emerald_wind',
       elapsedSec = 0,
     ) => {
-      if (runningAuraId === 'none' || (speedRatio < 0.22 && !skillActive)) {
+      if (runningAuraId === 'none' || (speedRatio < 0.16 && !skillActive)) {
         runAuraGroup.visible = false;
         return;
       }
@@ -2122,13 +2354,13 @@ export function createArticulatedPlayer(options: {
       runAuraGroup.visible = true;
 
       if (runningAuraId === 'rainbow_prism') {
-        const h1 = (elapsedSec * 0.42) % 1;
+        const h1 = (elapsedSec * 0.48) % 1;
         const h2 = (h1 + 0.35) % 1;
-        runDiscMat.color.setHSL(h1, 0.92, 0.56);
-        runRingMat.color.setHSL(h2, 0.95, 0.62);
-        runRing2Mat.color.setHSL((h1 + 0.68) % 1, 0.95, 0.64);
-        runBladeMat.color.setHSL(h2, 0.95, 0.62);
-        runPillarMat.color.setHSL((h1 + 0.22) % 1, 0.95, 0.66);
+        runDiscMat.color.setHSL(h1, 0.94, 0.58);
+        runRingMat.color.setHSL(h2, 0.96, 0.64);
+        runRing2Mat.color.setHSL((h1 + 0.68) % 1, 0.96, 0.66);
+        runBladeMat.color.setHSL(h2, 0.96, 0.64);
+        runPillarMat.color.setHSL((h1 + 0.22) % 1, 0.96, 0.68);
       } else {
         runDiscMat.color.setHex(profile.primaryColor);
         runRingMat.color.setHex(profile.secondaryColor);
@@ -2138,36 +2370,56 @@ export function createArticulatedPlayer(options: {
       }
 
       const intensity = THREE.MathUtils.clamp(
-        speedRatio * (isSprinting ? 1.32 : 0.85) + (skillActive ? 0.62 : 0),
+        speedRatio * (isSprinting ? 1.42 : 0.92) + (skillActive ? 0.68 : 0),
         0,
-        1.55,
+        1.65,
       );
-      runDiscMat.opacity = Math.min(0.88, intensity * 0.64);
-      runRingMat.opacity = Math.min(0.9, intensity * 0.62);
-      runRing2Mat.opacity = Math.min(0.82, Math.max(0, intensity - 0.15) * 0.58);
-      runBladeMat.opacity = Math.min(0.78, Math.max(0, intensity - 0.28) * 0.74);
-      runPillarMat.opacity = Math.min(0.68, Math.max(0, intensity - 0.35) * 0.66);
+      runDiscMat.opacity = Math.min(0.92, intensity * 0.68);
+      runRingMat.opacity = Math.min(0.94, intensity * 0.68);
+      runRing2Mat.opacity = Math.min(0.88, Math.max(0, intensity - 0.12) * 0.64);
+      runBladeMat.opacity = Math.min(0.84, Math.max(0, intensity - 0.22) * 0.78);
+      runPillarMat.opacity = Math.min(0.74, Math.max(0, intensity - 0.32) * 0.7);
 
-      const pulse = 1 + Math.sin(elapsedSec * 12) * 0.09 * intensity;
-      const discScale = (0.86 + intensity * 0.4) * pulse;
+      const pulse = 1 + Math.sin(elapsedSec * 14) * 0.1 * intensity;
+      const discScale = (0.9 + intensity * 0.44) * pulse;
       runDiscMesh.scale.set(discScale, discScale, 1);
-      runDiscMesh.rotation.z = elapsedSec * (isSprinting ? 5.2 : 2.8);
+      runDiscMesh.rotation.z = elapsedSec * (isSprinting ? 6.4 : 3.2);
 
-      runHaloMesh.position.y = 0.15 + Math.sin(elapsedSec * 9) * 0.06;
-      runHaloMesh.scale.setScalar(0.88 + intensity * 0.35);
+      runHaloMesh.position.y = 0.15 + Math.sin(elapsedSec * 10) * 0.065;
+      runHaloMesh.scale.setScalar(0.92 + intensity * 0.38);
 
-      runHalo2Mesh.position.y = 0.42 + Math.cos(elapsedSec * 7.5) * 0.07;
-      runHalo2Mesh.rotation.y = -elapsedSec * 4.4;
-      runHalo2Mesh.rotation.z = Math.sin(elapsedSec * 3.5) * 0.28;
-      runHalo2Mesh.scale.setScalar(0.84 + intensity * 0.32);
+      runHalo2Mesh.position.y = 0.44 + Math.cos(elapsedSec * 8.5) * 0.075;
+      runHalo2Mesh.rotation.y = -elapsedSec * 5.2;
+      runHalo2Mesh.rotation.z = Math.sin(elapsedSec * 4.2) * 0.34;
+      runHalo2Mesh.scale.setScalar(0.88 + intensity * 0.36);
 
-      const bladeLen = 0.7 + intensity * 0.92;
-      runBladeL.scale.set(1, bladeLen, 1);
-      runBladeR.scale.set(1, bladeLen, 1);
+      const bladeLen = 0.8 + intensity * 1.05;
+      runBladeL.scale.set(1 + intensity * 0.25, bladeLen, 1);
+      runBladeR.scale.set(1 + intensity * 0.25, bladeLen, 1);
 
-      const pillarH = 0.65 + intensity * 0.75;
+      const wingActive = isSprinting || skillActive || intensity > 0.68;
+      runWingL.visible = wingActive;
+      runWingR.visible = wingActive;
+      if (wingActive) {
+        const wingSweep = 0.9 + intensity * 0.95;
+        const wingFlutter = Math.sin(elapsedSec * 18) * 0.09;
+        runWingL.scale.set(1.0 + intensity * 0.28, wingSweep, 1);
+        runWingR.scale.set(1.0 + intensity * 0.28, wingSweep, 1);
+        runWingL.rotation.z = 0.34 + wingFlutter;
+        runWingR.rotation.z = -0.34 - wingFlutter;
+      }
+
+      const pillarH = 0.72 + intensity * 0.84;
       runPillarL.scale.set(1, pillarH, 1);
       runPillarR.scale.set(1, pillarH, 1);
+
+      // Animated stride-synced speed rings around player cleats
+      const strideWave = Math.sin(elapsedSec * (isSprinting ? 18 : 12));
+      runBootRingL.position.set(-0.14, 0.07 + Math.max(0, strideWave) * 0.16, strideWave * 0.28);
+      runBootRingR.position.set(0.14, 0.07 + Math.max(0, -strideWave) * 0.16, -strideWave * 0.28);
+      const bootRingScale = 0.75 + intensity * 0.52;
+      runBootRingL.scale.setScalar(bootRingScale);
+      runBootRingR.scale.setScalar(bootRingScale);
     },
     dispose: () => {
       geometries.forEach((g) => g.dispose());

@@ -26,7 +26,7 @@ export type GameMode =
 
 export type Difficulty = 'easy' | 'medium' | 'pro' | 'extreme';
 
-export type PracticeFocus = 'freekick' | 'penalty' | 'corner';
+export type PracticeFocus = 'freekick' | 'penalty' | 'corner' | 'curve_lab';
 
 export type TeamId =
   | 'real_madrid'
@@ -102,7 +102,11 @@ export type KitPattern =
   | 'cyber'
   | 'toty_prism'
   | 'carbon_gold'
-  | 'halftone_pro';
+  | 'halftone_pro'
+  | 'aurora_wave'
+  | 'dragon_scale'
+  | 'thunder_bolt'
+  | 'sakura_gold';
 
 export type HairStyle =
   | 'quiff'
@@ -127,12 +131,28 @@ export type PlayerSkinId =
   | 'samurai_eclipse'
   | 'brazil_carnival'
   | 'inferno_beast'
-  | 'icon_legacy';
+  | 'icon_legacy'
+  | 'celestial_aurora'
+  | 'golden_dragon_emperor'
+  | 'thunder_god'
+  | 'sakura_shogun'
+  | 'galactic_nebula'
+  | 'jade_immortal'
+  | 'obsidian_titan'
+  | 'royal_pharaoh';
 
 export const SKIN_ORDER: PlayerSkinId[] = [
   'default',
+  'celestial_aurora',
+  'golden_dragon_emperor',
+  'thunder_god',
+  'sakura_shogun',
   'toty_celestial',
   'ballon_dor_chrome',
+  'jade_immortal',
+  'obsidian_titan',
+  'royal_pharaoh',
+  'galactic_nebula',
   'golden_goat',
   'icon_legacy',
   'samurai_eclipse',
@@ -541,6 +561,135 @@ export const PLAYER_SKINS: Record<PlayerSkinId, PlayerSkinProfile> = {
     kitPattern: 'striped',
     hairStyle: 'quiff',
     auraColor: '#fde047',
+  },
+  celestial_aurora: {
+    id: 'celestial_aurora',
+    nameVi: 'Cực Quang Bắc Cực',
+    nameEn: 'Celestial Aurora',
+    badgeVi: 'Cực Quang',
+    badgeEn: 'Aurora',
+    jerseyColor: '#082f49',
+    accentColor: '#2dd4bf',
+    shortsColor: 0x042f2e,
+    bootColor: 0x5eead4,
+    gloveColor: 0x2dd4bf,
+    kitPattern: 'aurora_wave',
+    hairStyle: 'long_flow',
+    hairTint: 0x99f6e4,
+    auraColor: '#2dd4bf',
+  },
+  golden_dragon_emperor: {
+    id: 'golden_dragon_emperor',
+    nameVi: 'Hoàng Long Chí Tôn',
+    nameEn: 'Imperial Dragon',
+    badgeVi: 'Chí Tôn',
+    badgeEn: 'Emperor',
+    jerseyColor: '#7f1d1d',
+    accentColor: '#fde047',
+    shortsColor: 0x1c1917,
+    bootColor: 0xfacc15,
+    gloveColor: 0xfde047,
+    kitPattern: 'dragon_scale',
+    hairStyle: 'mohawk',
+    hairTint: 0xfacc15,
+    hasHeadband: true,
+    auraColor: '#fde047',
+  },
+  thunder_god: {
+    id: 'thunder_god',
+    nameVi: 'Lôi Thần Tối Thượng',
+    nameEn: 'Storm Sovereign',
+    badgeVi: 'Lôi Thần',
+    badgeEn: 'Thunder',
+    jerseyColor: '#1e1b4b',
+    accentColor: '#38bdf8',
+    shortsColor: 0x0f172a,
+    bootColor: 0x38bdf8,
+    gloveColor: 0x7dd3fc,
+    kitPattern: 'thunder_bolt',
+    hairStyle: 'quiff',
+    hairTint: 0xbae6fd,
+    auraColor: '#38bdf8',
+  },
+  sakura_shogun: {
+    id: 'sakura_shogun',
+    nameVi: 'Anh Đào Kiếm Thánh',
+    nameEn: 'Sakura Shogun',
+    badgeVi: 'Hoa Anh Đào',
+    badgeEn: 'Sakura',
+    jerseyColor: '#fdf2f8',
+    accentColor: '#f43f5e',
+    shortsColor: 0x1f2937,
+    bootColor: 0xfb7185,
+    gloveColor: 0xfda4af,
+    kitPattern: 'sakura_gold',
+    hairStyle: 'long_flow',
+    hasHeadband: true,
+    auraColor: '#fb7185',
+  },
+  galactic_nebula: {
+    id: 'galactic_nebula',
+    nameVi: 'Tinh Vân Ngân Hà',
+    nameEn: 'Galactic Nebula',
+    badgeVi: 'Vũ Trụ',
+    badgeEn: 'Cosmic',
+    jerseyColor: '#1e1b4b',
+    accentColor: '#f472b6',
+    shortsColor: 0x090d16,
+    bootColor: 0xe879f9,
+    gloveColor: 0xf472b6,
+    kitPattern: 'galaxy',
+    hairStyle: 'afro_braids',
+    hasHeadband: true,
+    auraColor: '#f472b6',
+  },
+  jade_immortal: {
+    id: 'jade_immortal',
+    nameVi: 'Ngọc Bích Đế Vương',
+    nameEn: 'Imperial Jade',
+    badgeVi: 'Ngọc Bích',
+    badgeEn: 'Jade',
+    jerseyColor: '#064e3b',
+    accentColor: '#fbbf24',
+    shortsColor: 0x022c22,
+    bootColor: 0x34d399,
+    gloveColor: 0xfbbf24,
+    kitPattern: 'toty_prism',
+    hairStyle: 'quiff',
+    hasHeadband: true,
+    auraColor: '#34d399',
+  },
+  obsidian_titan: {
+    id: 'obsidian_titan',
+    nameVi: 'Hắc Kim Bất Bại',
+    nameEn: 'Obsidian Titan',
+    badgeVi: 'Bất Bại',
+    badgeEn: 'Titan',
+    jerseyColor: '#09090b',
+    accentColor: '#fb7185',
+    shortsColor: 0x09090b,
+    bootColor: 0xf43f5e,
+    gloveColor: 0xfb7185,
+    kitPattern: 'carbon_gold',
+    hairStyle: 'buzz',
+    hasHeadband: true,
+    auraColor: '#f43f5e',
+  },
+  royal_pharaoh: {
+    id: 'royal_pharaoh',
+    nameVi: 'Pharaoh Hoàng Gia',
+    nameEn: 'Royal Pharaoh',
+    badgeVi: 'Hoàng Tộc',
+    badgeEn: 'Pharaoh',
+    jerseyColor: '#172554',
+    accentColor: '#facc15',
+    shortsColor: 0x0f172a,
+    bootColor: 0xfde047,
+    gloveColor: 0xfacc15,
+    kitPattern: 'royal_sash',
+    hairStyle: 'quiff',
+    hasHeadband: true,
+    auraColor: '#facc15',
   },
 };
 
@@ -1524,6 +1673,7 @@ export interface ShotOutcome {
   isHeader?: boolean;
   isRebound?: boolean;
   cornerAwarded?: 'left' | 'right' | null;
+  curveBendMeters?: number;
 }
 
 export interface MatchRoundRecord {
@@ -1576,9 +1726,13 @@ export interface GameSnapshot {
   matchShotsAway: number;
   matchGoalSeq: number;
   matchGoalTier: 'normal' | 'super' | null;
+  matchGoalScorerName: string | null;
+  matchGoalTeam: 'home' | 'away' | null;
   power: number; // 0..1
   spin: SpinInput;
   aim: AimTarget;
+  previewBendMeters: number;
+  customWindActive: boolean;
   lastOutcome: ShotOutcome | null;
   history: MatchRoundRecord[];
   muted: boolean;
@@ -1641,7 +1795,7 @@ export function computeImpossibleEntryFee(
 
 export const IMPOSSIBLE_SCENARIO: KickScenario = {
   id: 'impossible-1b',
-  label: 'Sút Không Thể Vào (Giải 1 Tỷ Xu)',
+  label: 'Sút Phạt 1 Tỷ Xu (Boss Yashin)',
   ballPos: { x: -3.2, z: 26.5 },
   wallCount: 7,
   wind: { x: 2.2, z: -0.6 },
@@ -1734,3 +1888,39 @@ export const CORNER_SCENARIOS: KickScenario[] = [
     difficulty: 'medium',
   },
 ];
+
+export const CURVE_LAB_SPOTS: KickScenario[] = [
+  {
+    id: 'curve-22-center',
+    label: '22m Vòng Rào 4 Người',
+    ballPos: { x: 0, z: 22.0 },
+    wallCount: 4,
+    wind: { x: 1.8, z: 0 },
+    difficulty: 'medium',
+  },
+  {
+    id: 'curve-24-left',
+    label: '24m Cánh Trái (Cứa Lòng)',
+    ballPos: { x: -6.4, z: 23.8 },
+    wallCount: 4,
+    wind: { x: -2.2, z: -0.6 },
+    difficulty: 'pro',
+  },
+  {
+    id: 'curve-24-right',
+    label: '24m Cánh Phải (Trivela)',
+    ballPos: { x: 6.4, z: 23.8 },
+    wallCount: 4,
+    wind: { x: 2.2, z: 0.6 },
+    difficulty: 'pro',
+  },
+  {
+    id: 'curve-29-carlos',
+    label: '29m Siêu Xoáy Roberto Carlos',
+    ballPos: { x: 4.5, z: 28.8 },
+    wallCount: 5,
+    wind: { x: -3.2, z: -1.0 },
+    difficulty: 'extreme',
+  },
+];
+

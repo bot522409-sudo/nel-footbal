@@ -400,6 +400,78 @@
         "lastSeenMs",
         "updatedAt"
       ]
+    },
+    "VisitSession": {
+      "title": "VisitSession",
+      "description": "Tracks app visit timestamps (HH:mm:ss) and playtime duration across both guest trial and signed-in sessions for private Admin review.",
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 80,
+          "pattern": "^visit_[0-9]+_[a-zA-Z0-9]+$"
+        },
+        "clientToken": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "accountType": {
+          "type": "string"
+        },
+        "modeLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "startedAtMs": {
+          "type": "number"
+        },
+        "lastSeenAtMs": {
+          "type": "number"
+        },
+        "endedAtMs": {
+          "type": ["number", "null"]
+        },
+        "durationSec": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "sessionId",
+        "clientToken",
+        "playerId",
+        "username",
+        "accountType",
+        "modeLabel",
+        "startedAtMs",
+        "lastSeenAtMs",
+        "endedAtMs",
+        "durationSec",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -426,6 +498,10 @@
     "/online_presence/{userId}": {
       "schema": { "$ref": "#/entities/OnlinePresence" },
       "description": "Live online status & current game mode presence for signed-in players."
+    },
+    "/visit_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/VisitSession" },
+      "description": "Global visitor session & playtime logs (including non-logged-in Guest sessions) readable only by the verified Admin."
     }
   }
 }

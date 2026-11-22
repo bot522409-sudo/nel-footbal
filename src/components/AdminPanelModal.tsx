@@ -25,8 +25,11 @@ import {
   adminAdjustPlayerCoins,
   adminKickPlayer,
   AdminPlayerSummary,
+  clearCloudVisitSessionsForAdmin,
   fetchAllPlayersForAdmin,
   MAX_CLUB_COINS,
+  subscribeVisitSessionsForAdmin,
+  VisitSessionCloudRecord,
 } from '../services/onlineClubService';
 import { OnlinePlayerBadge } from '../services/onlineMatchClient';
 
@@ -117,8 +120,9 @@ export function AdminPanelModal({
   const [busyUid, setBusyUid] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Visit & Playtime Tracker state (Admin-only)
-  const [visits, setVisits] = useState<VisitLogEntry[]>([]);
+  // Visit & Playtime Tracker state (Admin-only: Cloud Firestore + Express merged)
+  const [cloudVisits, setCloudVisits] = useState<VisitSessionCloudRecord[]>([]);
+  const [serverVisits, setServerVisits] = useState<VisitLogEntry[]>([]);
   const [visitsLoading, setVisitsLoading] = useState(false);
   const [visitsError, setVisitsError] = useState<string | null>(null);
   const [visitFilter, setVisitFilter] = useState<'all' | 'guest' | 'account'>(
@@ -162,11 +166,11 @@ export function AdminPanelModal({
         throw new Error(`HTTP ${resp.status}`);
       }
       const data = (await resp.json()) as { visits?: VisitLogEntry[] };
-      setVisits(Array.isArray(data.visits) ? data.visits : []);
+      setServerVisits(Array.isArray(data.visits) ? data.visits : []);
     } catch (err) {
       setVisitsError(
         err instanceof Error
-          ? `Không thể tải nhật ký truy cập (${err.message}).`
+          ? `Không thể tải nhật ký truy cập cục bộ (${err.message}).`
           : 'Không thể tải nhật ký truy cập.',
       );
     } finally {
@@ -181,14 +185,18 @@ export function AdminPanelModal({
     setVisitsError(null);
     try {
       const token = await fbUser.getIdToken();
-      const resp = await fetch('/api/admin/visits', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const [resp] = await Promise.all([
+        fetch('/api/admin/visits', {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        clearCloudVisitSessionsForAdmin(),
+      ]);
       if (!resp.ok) {
         throw new Error(`HTTP ${resp.status}`);
       }
-      setVisits([]);
+      setServerVisits([]);
+      setCloudVisits([]);
     } catch (err) {
       setVisitsError(
         err instanceof Error ? err.message : 'Xoá lịch sử truy cập thất bại.',
@@ -201,6 +209,15 @@ export function AdminPanelModal({
   useEffect(() => {
     void loadPlayers();
     void loadVisits();
+    const unsubCloudVisits = subscribeVisitSessionsForAdmin(
+      (rows) => {
+        setCloudVisits(rows);
+      },
+      () => {
+        // Fallback to serverVisits if snapshot errors
+      },
+    );
+    return () => unsubCloudVisits();
   }, [loadPlayers, loadVisits]);
 
   useEffect(() => {
@@ -210,6 +227,39 @@ export function AdminPanelModal({
     }, 10_000);
     return () => window.clearInterval(timer);
   }, [adminTab, loadVisits]);
+
+  const otherOnlinePlayers = useMemo(
+    () => onlinePlayers.filter((op) => op.playerId !== currentAdminUid),
+    [onlinePlayers, currentAdminUid],
+  );
+
+  const onlinePlayerIdSet = useMemo(
+    () => new Set(onlinePlayers.map((op) => op.playerId)),
+    [onlinePlayers],
+  );
+
+  const visits = useMemo(() => {
+    const map = new Map<string, VisitLogEntry>();
+    for (const row of [...serverVisits, ...cloudVisits]) {
+      const prev = map.get(row.sessionId);
+      if (!prev || row.lastSeenAtMs >= prev.lastSeenAtMs) {
+        const isLiveWs =
+          row.endedAtMs === null && onlinePlayerIdSet.has(row.playerId);
+        map.set(row.sessionId, {
+          ...row,
+          isOnline: row.isOnline || isLiveWs,
+        });
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => b.lastSeenAtMs - a.lastSeenAtMs,
+    );
+  }, [cloudVisits, serverVisits, onlinePlayerIdSet]);
+
+  const guestVisits = useMemo(
+    () => visits.filter((v) => v.accountType === 'guest'),
+    [visits],
+  );
 
   const filteredVisits = useMemo(() => {
     const q = visitSearch.trim().toLowerCase();
@@ -233,11 +283,6 @@ export function AdminPanelModal({
         p.uid.toLowerCase().includes(q),
     );
   }, [players, search]);
-
-  const otherOnlinePlayers = useMemo(
-    () => onlinePlayers.filter((op) => op.playerId !== currentAdminUid),
-    [onlinePlayers, currentAdminUid],
-  );
 
   const totalCirculation = useMemo(
     () =>
@@ -376,8 +421,8 @@ export function AdminPanelModal({
                 <Flame size={14} />
                 <span>
                   {isVi
-                    ? 'Sút Không Thể Vào (Miễn phí)'
-                    : 'Impossible Goal (Free)'}
+                    ? 'Sút 1 Tỷ Xu (Miễn phí)'
+                    : '1B Shot Mode (Free)'}
                 </span>
               </button>
             ) : null}
@@ -458,12 +503,12 @@ export function AdminPanelModal({
               <div className="leading-relaxed">
                 <strong className="text-emerald-200">
                   {isVi
-                    ? `Theo Dõi Lượt Truy Cập Riêng Cho Admin (${ADMIN_EMAIL}):`
-                    : `Private Admin Visit Tracker (${ADMIN_EMAIL}):`}
+                    ? `Theo Dõi Lượt Truy Cập Thời Gian Thực (${ADMIN_EMAIL}):`
+                    : `Real-Time Admin Visit Tracker (${ADMIN_EMAIL}):`}
                 </strong>{' '}
                 {isVi
-                  ? 'Ghi lại đầy đủ giờ : phút : giây truy cập, thời gian đã chơi và chế độ của mọi người chơi — bao gồm cả khách Chơi Trải Nghiệm không đăng nhập.'
-                  : 'Tracks exact arrival time (HH:mm:ss), playtime duration, and mode for every visitor — including Guest trial sessions.'}
+                  ? 'Đồng bộ qua Cloud Firestore trên mọi đường link & thiết bị: ghi lại giờ : phút : giây truy cập, thời gian đã chơi và chế độ của mọi người chơi — bao gồm cả khách không đăng nhập.'
+                  : 'Synced via Cloud Firestore across all links & devices: tracks exact arrival time (HH:mm:ss), playtime duration, and mode for every visitor — including non-logged-in Guests.'}
               </div>
             </div>
 
@@ -656,6 +701,23 @@ export function AdminPanelModal({
                           ? 'Đã Thoát'
                           : 'Exited'}
                       </span>
+                      {v.isOnline && v.playerId !== currentAdminUid ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onKickOnlinePlayer(
+                              v.playerId,
+                              v.username,
+                              kickReason.trim() ||
+                                'Bạn đã bị Quản Trị Viên kick khỏi trò chơi.',
+                            )
+                          }
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-[11px] cursor-pointer"
+                        >
+                          <UserX size={12} />
+                          <span>Kick</span>
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ))}
@@ -708,24 +770,149 @@ export function AdminPanelModal({
               </p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {otherOnlinePlayers.map((op) => (
-                  <div
-                    key={op.playerId}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-white/15 text-xs"
-                  >
-                    <span className="font-bold text-white">@{op.username}</span>
-                    <span className="font-mono-tabular text-[11px] text-emerald-300">
-                      OVR {op.squadOvr}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={busyUid === op.playerId}
-                      onClick={() => void handleKickLiveOnline(op)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-[11px] cursor-pointer disabled:opacity-50"
+                {otherOnlinePlayers.map((op) => {
+                  const isGuestLive =
+                    Boolean(op.isGuest) || op.playerId.startsWith('guest_');
+                  return (
+                    <div
+                      key={op.playerId}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-white/15 text-xs"
                     >
-                      <UserX size={12} />
-                      <span>Kick</span>
-                    </button>
+                      <span className="font-bold text-white">@{op.username}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                          isGuestLive
+                            ? 'bg-amber-400/20 border border-amber-400/45 text-amber-200'
+                            : 'bg-sky-400/20 border border-sky-400/45 text-sky-200'
+                        }`}
+                      >
+                        {isGuestLive
+                          ? isVi
+                            ? 'KHÁCH (Chưa ĐN)'
+                            : 'Guest'
+                          : isVi
+                          ? 'Tài Khoản'
+                          : 'Account'}
+                      </span>
+                      <span className="font-mono-tabular text-[11px] text-emerald-300">
+                        OVR {op.squadOvr}
+                      </span>
+                      {op.modeLabel ? (
+                        <span className="text-[10px] text-slate-400">
+                          · {op.modeLabel}
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={busyUid === op.playerId}
+                        onClick={() => void handleKickLiveOnline(op)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-[11px] cursor-pointer disabled:opacity-50"
+                      >
+                        <UserX size={12} />
+                        <span>Kick</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Non-logged-in Guest Visitors Summary (Always visible on main Admin tab) */}
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/35 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-extrabold text-amber-200">
+                <Clock size={14} className="text-amber-300" />
+                <span>
+                  {isVi
+                    ? `Khách Không Đăng Nhập Đang & Đã Vào App (${guestVisits.length} lượt)`
+                    : `Non-Logged-In Guest Visitors (${guestVisits.length} sessions)`}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVisitFilter('guest');
+                  setAdminTab('visits');
+                  void loadVisits();
+                }}
+                className="px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-extrabold cursor-pointer"
+              >
+                {isVi
+                  ? 'Xem toàn bộ Nhật Ký Khách →'
+                  : 'View All Guest Logs →'}
+              </button>
+            </div>
+
+            {guestVisits.length === 0 ? (
+              <p className="text-[11px] text-amber-100/75">
+                {isVi
+                  ? 'Chưa có người chơi Khách (không đăng nhập) nào vào app được ghi nhận.'
+                  : 'No non-logged-in guest visitors recorded yet.'}
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {guestVisits.slice(0, 8).map((gv) => (
+                  <div
+                    key={gv.sessionId}
+                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs ${
+                      gv.isOnline
+                        ? 'bg-emerald-500/12 border-emerald-400/40'
+                        : 'bg-slate-950/85 border-white/10'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${
+                            gv.isOnline ? 'bg-emerald-400' : 'bg-slate-500'
+                          }`}
+                        />
+                        <span className="font-extrabold text-white truncate">
+                          @{gv.username}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            gv.isOnline
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {gv.isOnline
+                            ? isVi
+                              ? 'Đang Trong App'
+                              : 'Active'
+                            : isVi
+                            ? 'Đã Thoát'
+                            : 'Left'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 font-mono-tabular truncate mt-0.5">
+                        Vào: {formatExactDateTime(gv.startedAtMs)} ·{' '}
+                        <span className="text-amber-300 font-bold">
+                          {formatDuration(gv.durationSec)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-300 truncate">
+                        {gv.modeLabel}
+                      </div>
+                    </div>
+                    {gv.isOnline && gv.playerId !== currentAdminUid ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onKickOnlinePlayer(
+                            gv.playerId,
+                            gv.username,
+                            kickReason.trim() ||
+                              'Bạn đã bị Quản Trị Viên kick khỏi trò chơi.',
+                          )
+                        }
+                        className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-[10px] cursor-pointer shrink-0"
+                      >
+                        Kick
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>

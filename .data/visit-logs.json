@@ -1,0 +1,35 @@
+[
+  {
+    "sessionId": "visit_1795170436963_g4ltmp",
+    "playerId": "5UiCmaOpF0cP0WiIolEBVtib2Ch2",
+    "username": "B_t",
+    "accountType": "account",
+    "modeLabel": "Ở Sảnh Chính",
+    "startedAtMs": 1795170436963,
+    "lastSeenAtMs": 1795171911460,
+    "endedAtMs": null,
+    "durationSec": 1474
+  },
+  {
+    "sessionId": "visit_1795169743801_x7dhrn",
+    "playerId": "5UiCmaOpF0cP0WiIolEBVtib2Ch2",
+    "username": "B_t",
+    "accountType": "account",
+    "modeLabel": "Đấu Bot",
+    "startedAtMs": 1795169743801,
+    "lastSeenAtMs": 1795170438905,
+    "endedAtMs": 1795170438905,
+    "durationSec": 695
+  },
+  {
+    "sessionId": "visit_1795169532737_ek10f4",
+    "playerId": "5UiCmaOpF0cP0WiIolEBVtib2Ch2",
+    "username": "B_t",
+    "accountType": "account",
+    "modeLabel": "Ở Sảnh Chính",
+    "startedAtMs": 1795169532737,
+    "lastSeenAtMs": 1795169745300,
+    "endedAtMs": 1795169745300,
+    "durationSec": 213
+  }
+]

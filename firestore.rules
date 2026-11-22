@@ -238,6 +238,37 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    function isValidVisitSession(data, sessionId) {
+      return data.keys().hasAll([
+          'sessionId', 'clientToken', 'playerId', 'username', 'accountType',
+          'modeLabel', 'startedAtMs', 'lastSeenAtMs', 'endedAtMs', 'durationSec',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'sessionId', 'clientToken', 'playerId', 'username', 'accountType',
+          'modeLabel', 'startedAtMs', 'lastSeenAtMs', 'endedAtMs', 'durationSec',
+          'createdAt', 'updatedAt'
+        ])
+        && data.sessionId is string
+        && data.sessionId.size() >= 8 && data.sessionId.size() <= 80
+        && data.sessionId == sessionId
+        && data.sessionId.matches('^visit_[0-9]+_[a-zA-Z0-9]+$')
+        && data.clientToken is string
+        && data.clientToken.size() >= 12 && data.clientToken.size() <= 64
+        && data.clientToken.matches('^[a-zA-Z0-9_\\-]+$')
+        && isValidId(data.playerId)
+        && data.username is string && data.username.size() >= 1 && data.username.size() <= 32
+        && data.accountType is string && data.accountType in ['guest', 'account']
+        && data.modeLabel is string && data.modeLabel.size() >= 1 && data.modeLabel.size() <= 64
+        && data.startedAtMs is number && data.startedAtMs >= 1700000000000
+        && data.lastSeenAtMs is number && data.lastSeenAtMs >= data.startedAtMs
+        && (data.endedAtMs == null || (data.endedAtMs is number && data.endedAtMs >= data.startedAtMs))
+        && data.durationSec is number && data.durationSec >= 0 && data.durationSec <= 864000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
     // Username reservation lookup (single-doc get only; no list scraping)
     match /usernames/{usernameKey} {
       allow get: if isValidUsernameKey(usernameKey);
@@ -383,6 +414,28 @@ service cloud.firestore {
         && isValidOnlinePresence(incoming(), userId)
         && incoming().uid == existing().uid;
       allow delete: if isValidId(userId) && isOwner(userId);
+    }
+
+    // App Visit & Playtime Sessions (Guest + Account; Admin-only read/list/delete)
+    match /visit_sessions/{sessionId} {
+      allow get: if isValidId(sessionId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(sessionId)
+        && isValidVisitSession(incoming(), sessionId)
+        && incoming().createdAt == request.time
+        && !exists(/databases/$(database)/documents/visit_sessions/$(sessionId));
+      allow update: if isValidId(sessionId)
+        && isValidVisitSession(incoming(), sessionId)
+        && incoming().sessionId == existing().sessionId
+        && incoming().clientToken == existing().clientToken
+        && incoming().startedAtMs == existing().startedAtMs
+        && incoming().createdAt == existing().createdAt
+        && incoming().lastSeenAtMs >= existing().lastSeenAtMs
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'playerId', 'username', 'accountType', 'modeLabel',
+          'lastSeenAtMs', 'endedAtMs', 'durationSec', 'updatedAt'
+        ]);
+      allow delete: if isValidId(sessionId) && isAdmin();
     }
   }
 }

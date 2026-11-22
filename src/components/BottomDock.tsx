@@ -22,10 +22,12 @@ import {
   Compass,
   Flame,
   Wind,
+  FastForward,
 } from 'lucide-react';
 import { Language } from '../game/fcData';
 import {
   CameraPreset,
+  CURVE_LAB_SPOTS,
   Difficulty,
   DIFFICULTY_LABELS,
   DribbleSkillType,
@@ -49,6 +51,7 @@ import {
   SpinInput,
   TEAM_PROFILES,
   WeatherType,
+  WindState,
 } from '../game/types';
 
 interface BottomDockProps {
@@ -74,6 +77,8 @@ interface BottomDockProps {
   onSetRunningAura: (auraId: RunningAuraId) => void;
   onSetMatchFormat: (format: MatchFormat) => void;
   onSetWeather: (weather: WeatherType) => void;
+  onSetCustomWind: (wind: WindState) => void;
+  onResetCustomWind: () => void;
   onSetShotSkill: (skill: ShotSkillType) => void;
   onBeginSkillCharge: (skill: ShotSkillType) => void;
   onGkDive: (dir: 'left' | 'center' | 'right') => void;
@@ -91,6 +96,7 @@ interface BottomDockProps {
   onMatchAutoAssistChange: (active: boolean) => void;
   onMatchDribbleSkill: (skill: DribbleSkillType) => void;
   onMatchSlideTackle: () => void;
+  onSkipMatchGoal: () => void;
 }
 
 const WEATHER_OPTIONS: Array<{
@@ -145,6 +151,8 @@ export function BottomDock({
   onSetRunningAura,
   onSetMatchFormat,
   onSetWeather,
+  onSetCustomWind,
+  onResetCustomWind,
   onSetShotSkill,
   onBeginSkillCharge,
   onGkDive,
@@ -162,6 +170,7 @@ export function BottomDock({
   onMatchAutoAssistChange,
   onMatchDribbleSkill,
   onMatchSlideTackle,
+  onSkipMatchGoal,
 }: BottomDockProps) {
   const padRef = useRef<HTMLDivElement>(null);
   const powerBarRef = useRef<HTMLDivElement>(null);
@@ -309,6 +318,12 @@ export function BottomDock({
       : `Xoáy Phải ${Math.round(Math.abs(snapshot.spin.curve) * 100)}%`;
 
   const powerPct = Math.round(snapshot.power * 100);
+  const isCornerSpot =
+    snapshot.scenario.ballPos.z <= 2.4 &&
+    Math.abs(snapshot.scenario.ballPos.x) >= 24;
+  const canCrossHeader =
+    snapshot.mode !== 'impossible' &&
+    (snapshot.scenario.ballPos.z >= 10.5 || isCornerSpot);
 
   const showFloatingShoot = !isMatchMode && !isGkTurn && canShoot;
 
@@ -354,6 +369,44 @@ export function BottomDock({
   };
 
   if (isMatchMode) {
+    if (snapshot.phase === 'match_goal') {
+      const isHomeGoal = snapshot.matchGoalTeam !== 'away';
+      return (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 px-4 py-2 rounded-xl bg-[#09121f]/95 border border-amber-400/75 shadow-2xl select-none max-w-[95vw]">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-white whitespace-nowrap">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-sm border border-white/30"
+              style={{
+                backgroundColor: isHomeGoal
+                  ? homeTeam.jerseyColor
+                  : awayTeam.jerseyColor,
+              }}
+              aria-hidden="true"
+            />
+            <span className={isHomeGoal ? 'text-emerald-300' : 'text-rose-300'}>
+              {snapshot.matchGoalScorerName
+                ? `${snapshot.matchGoalScorerName} · `
+                : ''}
+              {lang === 'vi' ? 'Đang ăn mừng bàn thắng' : 'Goal Celebration'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onSkipMatchGoal();
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-extrabold text-xs sm:text-sm whitespace-nowrap cursor-pointer shadow-lg transition-all"
+          >
+            <FastForward size={15} fill="currentColor" />
+            <span>
+              {lang === 'vi' ? 'Bỏ Qua (Space)' : 'Skip (Space)'}
+            </span>
+          </button>
+        </div>
+      );
+    }
+
     const renderDpadDirBtn = (
       x: number,
       z: number,
@@ -388,7 +441,7 @@ export function BottomDock({
             setPressedDirs((prev) => ({ ...prev, [dirKey]: false }));
             onMatchMoveInput(0, 0);
           }}
-          className={`touch-none flex flex-col items-center justify-center w-12 h-12 rounded-xl border shadow-lg transition-colors select-none cursor-pointer ${
+          className={`touch-none flex flex-col items-center justify-center w-10 h-10 rounded-lg border shadow-lg transition-colors select-none cursor-pointer ${
             !canPlayMatch
               ? 'bg-slate-900/70 border-white/5 text-slate-500 cursor-not-allowed'
               : activeKey
@@ -397,7 +450,7 @@ export function BottomDock({
           }`}
         >
           {icon}
-          <span className="text-[9px] font-mono-tabular font-bold opacity-80 leading-none mt-0.5">
+          <span className="text-[8.5px] font-mono-tabular font-bold opacity-80 leading-none">
             {keyLabel}
           </span>
         </button>
@@ -406,11 +459,10 @@ export function BottomDock({
 
     return (
       <>
-        {/* Bottom-Left Movement Controls: PC D-Pad (WASD) or Analog Stick + Sprint & Auto-Run */}
-        <div className="fixed bottom-4 left-4 sm:left-6 z-30 flex items-end gap-3 select-none">
-          <div className="flex flex-col items-start gap-2">
-            {/* Switch between PC Buttons and Drag Joystick */}
-            <div className="flex items-center gap-1 bg-[#0B1320]/90 p-0.5 rounded-lg border border-white/15 shadow">
+        {/* Bottom-Left Movement Controls: Compact PC D-Pad (WASD) or Analog Stick */}
+        <div className="fixed bottom-2.5 left-3 sm:left-4 z-30 flex items-end gap-2 select-none">
+          <div className="flex flex-col items-start gap-1.5">
+            <div className="flex items-center gap-1 bg-[#0B1320]/90 p-0.5 rounded-md border border-white/15 shadow">
               <button
                 type="button"
                 onClick={(e) => {
@@ -444,11 +496,11 @@ export function BottomDock({
             </div>
 
             {padStyle === 'dpad' ? (
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-3 gap-1">
                 <div />
-                {renderDpadDirBtn(0, -1, 'w', '(W)', 'Chạy lên (W / ↑)', <ArrowUp size={16} />)}
+                {renderDpadDirBtn(0, -1, 'w', '(W)', 'Chạy lên (W / ↑)', <ArrowUp size={14} />)}
                 <div />
-                {renderDpadDirBtn(-1, 0, 'a', '(A)', 'Chạy trái (A / ←)', <ArrowLeft size={16} />)}
+                {renderDpadDirBtn(-1, 0, 'a', '(A)', 'Chạy trái (A / ←)', <ArrowLeft size={14} />)}
                 <button
                   type="button"
                   disabled={!canPlayMatch}
@@ -463,20 +515,20 @@ export function BottomDock({
                       ? 'Bật/Tắt Tự Chạy theo bóng hoặc hướng lên gôn (Phím F)'
                       : 'Toggle Auto-Run toward ball/goal (F)'
                   }
-                  className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl border shadow-lg transition-colors cursor-pointer ${
+                  className={`flex flex-col items-center justify-center w-10 h-10 rounded-lg border shadow-lg transition-colors cursor-pointer ${
                     autoRunOn
                       ? 'bg-sky-400 border-sky-200 text-slate-950'
                       : 'bg-slate-900/90 hover:bg-slate-800 border-white/15 text-sky-300'
                   } ${!canPlayMatch ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <Navigation size={14} />
-                  <span className="text-[8.5px] font-extrabold leading-none mt-0.5">
-                    {lang === 'vi' ? 'TỰ (F)' : 'AUTO (F)'}
+                  <Navigation size={12} />
+                  <span className="text-[8px] font-extrabold leading-none mt-0.5">
+                    {lang === 'vi' ? 'TỰ (F)' : 'AUTO'}
                   </span>
                 </button>
-                {renderDpadDirBtn(1, 0, 'd', '(D)', 'Chạy phải (D / →)', <ArrowRight size={16} />)}
+                {renderDpadDirBtn(1, 0, 'd', '(D)', 'Chạy phải (D / →)', <ArrowRight size={14} />)}
                 <div />
-                {renderDpadDirBtn(0, 1, 's', '(S)', 'Chạy lùi (S / ↓)', <ArrowDown size={16} />)}
+                {renderDpadDirBtn(0, 1, 's', '(S)', 'Chạy lùi (S / ↓)', <ArrowDown size={14} />)}
                 <div />
               </div>
             ) : (
@@ -502,7 +554,7 @@ export function BottomDock({
                 onPointerUp={() => resetJoystick()}
                 onPointerCancel={() => resetJoystick()}
                 onLostPointerCapture={() => resetJoystick()}
-                className={`relative w-[144px] h-[144px] rounded-full bg-[#0B1320]/85 border-2 shadow-2xl touch-none select-none flex items-center justify-center transition-colors ${
+                className={`relative w-[114px] h-[114px] rounded-full bg-[#0B1320]/85 border-2 shadow-2xl touch-none select-none flex items-center justify-center transition-colors ${
                   canPlayMatch
                     ? joyActive
                       ? 'border-emerald-400 cursor-grabbing'
@@ -510,49 +562,31 @@ export function BottomDock({
                     : 'border-white/10 opacity-50 cursor-not-allowed'
                 }`}
               >
-                <div className="pointer-events-none absolute inset-4 rounded-full border border-white/10" />
-                <ArrowUp
-                  size={14}
-                  className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 text-slate-400"
-                />
-                <ArrowDown
-                  size={14}
-                  className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-slate-400"
-                />
-                <ArrowLeft
-                  size={14}
-                  className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <ArrowRight
-                  size={14}
-                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
-                />
+                <div className="pointer-events-none absolute inset-3 rounded-full border border-white/10" />
+                <ArrowUp size={12} className="pointer-events-none absolute top-1.5 left-1/2 -translate-x-1/2 text-slate-400" />
+                <ArrowDown size={12} className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 text-slate-400" />
+                <ArrowLeft size={12} className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <ArrowRight size={12} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400" />
 
                 <div
-                  className={`pointer-events-none w-14 h-14 rounded-full border-2 shadow-lg flex items-center justify-center transition-transform duration-75 ${
+                  className={`pointer-events-none w-11 h-11 rounded-full border-2 shadow-lg flex items-center justify-center transition-transform duration-75 ${
                     joyActive
                       ? 'bg-emerald-400 border-white text-slate-950 scale-105'
                       : 'bg-emerald-500/90 border-emerald-200/80 text-slate-950'
                   }`}
                   style={{
-                    transform: `translate(${joyKnob.x * 40}px, ${joyKnob.y * 40}px)`,
+                    transform: `translate(${joyKnob.x * 32}px, ${joyKnob.y * 32}px)`,
                   }}
                 >
-                  <span className="text-[10px] font-extrabold tracking-wide">
+                  <span className="text-[9px] font-extrabold tracking-wide">
                     {lang === 'vi' ? 'CHẠY' : 'MOVE'}
                   </span>
                 </div>
               </div>
             )}
-
-            <span className="hidden sm:inline text-[10px] font-medium text-slate-300 bg-[#0B1320]/80 px-2 py-0.5 rounded border border-white/10">
-              {lang === 'vi'
-                ? 'Click lên sân để chạy · WASD'
-                : 'Click pitch to run · WASD'}
-            </span>
           </div>
 
-          <div className="mb-5 flex flex-col gap-1.5">
+          <div className="mb-1 flex flex-col gap-1">
             <button
               type="button"
               disabled={!canPlayMatch}
@@ -562,19 +596,15 @@ export function BottomDock({
                 setAutoRunOn(next);
                 onMatchAutoAssistChange(next);
               }}
-              title={
-                lang === 'vi'
-                  ? 'Tự chạy theo bóng hoặc tấn công gôn đối thủ (Phím F)'
-                  : 'Auto chase ball or drive to goal (F)'
-              }
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border shadow-lg transition-colors cursor-pointer whitespace-nowrap ${
+              title={lang === 'vi' ? 'Tự chạy theo bóng (Phím F)' : 'Auto run (F)'}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border shadow transition-colors cursor-pointer whitespace-nowrap ${
                 autoRunOn
                   ? 'bg-sky-400 border-sky-200 text-slate-950'
                   : 'bg-[#0B1320]/88 hover:bg-slate-800 border-white/15 text-slate-200'
               } ${!canPlayMatch ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Navigation size={13} />
-              <span>{lang === 'vi' ? 'Tự Chạy (F)' : 'Auto Run (F)'}</span>
+              <Navigation size={12} />
+              <span>{lang === 'vi' ? 'Tự Chạy (F)' : 'Auto (F)'}</span>
             </button>
 
             <button
@@ -586,25 +616,21 @@ export function BottomDock({
                 setSprintOn(next);
                 onMatchSprintChange(next);
               }}
-              title={
-                lang === 'vi'
-                  ? 'Bật/Tắt chạy bứt tốc (hoặc giữ Shift)'
-                  : 'Toggle Sprint (or hold Shift)'
-              }
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border shadow-lg transition-colors cursor-pointer whitespace-nowrap ${
+              title={lang === 'vi' ? 'Bật/Tắt bứt tốc (Shift)' : 'Sprint (Shift)'}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border shadow transition-colors cursor-pointer whitespace-nowrap ${
                 sprintOn
                   ? 'bg-amber-400 border-amber-200 text-slate-950'
                   : 'bg-[#0B1320]/88 hover:bg-slate-800 border-white/15 text-slate-200'
               } ${!canPlayMatch ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Zap size={14} fill={sprintOn ? 'currentColor' : 'none'} />
-              <span>{lang === 'vi' ? 'Bứt Tốc (Shift)' : 'Sprint (Shift)'}</span>
+              <Zap size={12} fill={sprintOn ? 'currentColor' : 'none'} />
+              <span>{lang === 'vi' ? 'Bứt Tốc' : 'Sprint'}</span>
             </button>
           </div>
         </div>
 
         {/* Bottom-Center Compact Match Info, Difficulty & Camera (Desktop xl+) */}
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-20 hidden xl:flex items-center gap-3 px-3.5 py-2 rounded-xl bg-[#0B1320]/90 border border-white/12 shadow-2xl">
+        <div className="fixed bottom-2.5 left-1/2 -translate-x-1/2 z-20 hidden xl:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-[#0B1320]/90 border border-white/12 shadow-2xl">
           <div className="flex items-center gap-2 text-xs">
             <span
               className="inline-block w-2.5 h-2.5 rounded-sm border border-white/30"
@@ -817,17 +843,17 @@ export function BottomDock({
           ) : null}
         </div>
 
-        {/* Bottom-Right FC Action Cluster */}
-        <div className="fixed bottom-4 right-4 sm:right-6 z-30 flex flex-col items-end gap-2 select-none">
+        {/* Bottom-Right Slim Match Action Cluster */}
+        <div className="fixed bottom-2.5 right-3 sm:right-4 z-30 flex flex-col items-end gap-1.5 select-none">
           {/* Compact Skin, Aura, Format, Camera & Difficulty bar for < xl */}
-          <div className="flex xl:hidden items-center gap-1.5 flex-wrap justify-end">
+          <div className="flex xl:hidden items-center gap-1 flex-wrap justify-end">
             <button
               type="button"
               onClick={(e) => {
                 e.currentTarget.blur();
                 onSetMatchFormat(snapshot.matchFormat === '11v11' ? '5v5' : '11v11');
               }}
-              className="h-8 px-2.5 bg-violet-500/25 border border-violet-400/45 rounded-lg text-[11px] font-extrabold text-violet-200 cursor-pointer"
+              className="h-7 px-2 bg-violet-500/25 border border-violet-400/45 rounded-md text-[10.5px] font-extrabold text-violet-200 cursor-pointer"
             >
               {snapshot.matchFormat === '11v11' ? '11v11' : '5v5'}
             </button>
@@ -838,7 +864,7 @@ export function BottomDock({
                 e.currentTarget.blur();
                 onSetPlayerSkin(e.target.value as PlayerSkinId);
               }}
-              className="h-8 px-2 bg-[#0B1320]/90 border border-emerald-400/35 rounded-lg text-[11px] font-semibold text-emerald-200 cursor-pointer"
+              className="h-7 px-1.5 bg-[#0B1320]/90 border border-emerald-400/35 rounded-md text-[10.5px] font-semibold text-emerald-200 cursor-pointer"
             >
               {SKIN_ORDER.map((skinId) => (
                 <option key={skinId} value={skinId}>
@@ -853,7 +879,7 @@ export function BottomDock({
                 e.currentTarget.blur();
                 onSetRunningAura(e.target.value as RunningAuraId);
               }}
-              className="h-8 px-2 bg-[#0B1320]/90 border border-amber-400/35 rounded-lg text-[11px] font-semibold text-amber-200 cursor-pointer"
+              className="h-7 px-1.5 bg-[#0B1320]/90 border border-amber-400/35 rounded-md text-[10.5px] font-semibold text-amber-200 cursor-pointer"
             >
               {RUNNING_AURA_ORDER.map((auraId) => (
                 <option key={auraId} value={auraId}>
@@ -868,7 +894,7 @@ export function BottomDock({
                 e.currentTarget.blur();
                 onSetDifficulty(e.target.value as Difficulty);
               }}
-              className="h-8 px-2 bg-[#0B1320]/90 border border-white/15 rounded-lg text-[11px] font-semibold text-slate-200 cursor-pointer"
+              className="h-7 px-1.5 bg-[#0B1320]/90 border border-white/15 rounded-md text-[10.5px] font-semibold text-slate-200 cursor-pointer"
             >
               {DIFFICULTY_ORDER.map((diff) => (
                 <option key={diff} value={diff}>
@@ -883,7 +909,7 @@ export function BottomDock({
                 e.currentTarget.blur();
                 onSetWeather(e.target.value as WeatherType);
               }}
-              className="h-8 px-2 bg-[#0B1320]/90 border border-sky-400/35 rounded-lg text-[11px] font-semibold text-sky-200 cursor-pointer"
+              className="h-7 px-1.5 bg-[#0B1320]/90 border border-sky-400/35 rounded-md text-[10.5px] font-semibold text-sky-200 cursor-pointer"
             >
               {WEATHER_OPTIONS.map((w) => (
                 <option key={w.id} value={w.id}>
@@ -898,10 +924,10 @@ export function BottomDock({
                 cycleCameraPreset();
               }}
               title={lang === 'vi' ? 'Đổi góc camera (Phím V)' : 'Cycle camera (V)'}
-              className="flex items-center gap-1 h-8 px-2.5 bg-[#0B1320]/90 hover:bg-slate-800 border border-white/15 rounded-lg text-[11px] font-semibold text-slate-200 cursor-pointer"
+              className="flex items-center gap-1 h-7 px-2 bg-[#0B1320]/90 hover:bg-slate-800 border border-white/15 rounded-md text-[10.5px] font-semibold text-slate-200 cursor-pointer"
             >
-              <Camera size={13} />
-              <span>Cam (V)</span>
+              <Camera size={12} />
+              <span>Cam</span>
             </button>
             <button
               type="button"
@@ -909,14 +935,14 @@ export function BottomDock({
                 e.currentTarget.blur();
                 onToggleCameraOrbit();
               }}
-              title={lang === 'vi' ? 'Bật/Tắt xoay góc camera 360°' : 'Toggle 360° camera orbit'}
-              className={`flex items-center gap-1 h-8 px-2 rounded-lg text-[11px] font-bold border cursor-pointer ${
+              title={lang === 'vi' ? 'Xoay camera 360°' : 'Toggle 360° camera orbit'}
+              className={`flex items-center gap-1 h-7 px-1.5 rounded-md text-[10.5px] font-bold border cursor-pointer ${
                 snapshot.cameraOrbitMode
                   ? 'bg-sky-400 border-sky-200 text-slate-950'
                   : 'bg-[#0B1320]/90 hover:bg-slate-800 border-white/15 text-sky-300'
               }`}
             >
-              <Compass size={13} />
+              <Compass size={12} />
               <span>360°</span>
             </button>
             {snapshot.cameraHasCustomOrbit ? (
@@ -927,24 +953,24 @@ export function BottomDock({
                   onResetCameraOrbit();
                 }}
                 title={lang === 'vi' ? 'Đặt lại góc camera' : 'Reset camera angle'}
-                className="flex items-center justify-center w-8 h-8 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 rounded-lg text-amber-200 cursor-pointer"
+                className="flex items-center justify-center w-7 h-7 bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 rounded-md text-amber-200 cursor-pointer"
               >
-                <RotateCcw size={13} />
+                <RotateCcw size={12} />
               </button>
             ) : null}
           </div>
 
-          {/* Match Dribble Skills Bar */}
-          <div className="flex flex-wrap items-center justify-end gap-1.5 max-w-[380px] sm:max-w-[540px]">
+          {/* Slim Single-Row / Compact Match Dribble Skills Bar */}
+          <div className="flex items-center gap-1 overflow-x-auto max-w-[340px] sm:max-w-[520px]">
             {(
               [
-                { id: 'stepover' as DribbleSkillType, labelVi: 'Đảo Chân (1)', labelEn: 'Stepover (1)' },
-                { id: 'roulette' as DribbleSkillType, labelVi: 'Xoay Compa (2)', labelEn: 'Roulette (2)' },
-                { id: 'elastico' as DribbleSkillType, labelVi: 'Elastico (3)', labelEn: 'Elastico (3)' },
-                { id: 'rainbow_flick' as DribbleSkillType, labelVi: 'Tâng Bóng (4)', labelEn: 'Rainbow (4)' },
-                { id: 'maradona_spin' as DribbleSkillType, labelVi: 'Maradona (5)', labelEn: '360 Spin (5)' },
-                { id: 'heel_chop' as DribbleSkillType, labelVi: 'Ronaldo Chop (6)', labelEn: 'Heel Chop (6)' },
-                { id: 'ball_roll_dash' as DribbleSkillType, labelVi: 'Kéo Gầm (7)', labelEn: 'Ball Roll (7)' },
+                { id: 'stepover' as DribbleSkillType, labelVi: 'Đảo (1)', labelEn: 'Step (1)' },
+                { id: 'roulette' as DribbleSkillType, labelVi: 'Compa (2)', labelEn: 'Spin (2)' },
+                { id: 'elastico' as DribbleSkillType, labelVi: 'Elastico (3)', labelEn: 'Elast (3)' },
+                { id: 'rainbow_flick' as DribbleSkillType, labelVi: 'Tâng (4)', labelEn: 'Flick (4)' },
+                { id: 'maradona_spin' as DribbleSkillType, labelVi: 'Maradona (5)', labelEn: '360 (5)' },
+                { id: 'heel_chop' as DribbleSkillType, labelVi: 'Chop (6)', labelEn: 'Chop (6)' },
+                { id: 'ball_roll_dash' as DribbleSkillType, labelVi: 'Kéo (7)', labelEn: 'Roll (7)' },
               ]
             ).map((sk) => {
               const active = snapshot.activeDribbleSkill === sk.id;
@@ -957,7 +983,7 @@ export function BottomDock({
                     e.currentTarget.blur();
                     onMatchDribbleSkill(sk.id);
                   }}
-                  className={`px-2 py-1.5 rounded-lg text-[11px] font-extrabold border shadow transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`px-2 py-1 rounded-md text-[10.5px] font-bold border shadow transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     active
                       ? 'bg-amber-400 border-amber-200 text-slate-950'
                       : canPlayMatch
@@ -971,7 +997,7 @@ export function BottomDock({
             })}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
             <button
               type="button"
               disabled={!canPlayMatch}
@@ -980,14 +1006,14 @@ export function BottomDock({
                 onMatchSwitchPlayer();
               }}
               title="Q / Tab"
-              className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border shadow-lg transition-colors whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border shadow transition-colors whitespace-nowrap cursor-pointer ${
                 canPlayMatch
                   ? 'bg-[#0B1320]/90 hover:bg-slate-800 border-white/20 text-slate-100'
                   : 'bg-slate-900/70 border-white/5 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <Repeat size={14} />
-              <span>{lang === 'vi' ? 'Đổi Người (Q)' : 'Switch (Q)'}</span>
+              <Repeat size={13} />
+              <span>{lang === 'vi' ? 'Đổi (Q)' : 'Switch (Q)'}</span>
             </button>
 
             <button
@@ -998,14 +1024,14 @@ export function BottomDock({
                 onMatchLobPass();
               }}
               title="K / E"
-              className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-colors whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shadow transition-colors whitespace-nowrap cursor-pointer ${
                 canPlayMatch
                   ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
                   : 'bg-slate-800/70 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <UserPlus size={14} />
-              <span>{lang === 'vi' ? 'Treo Bổng (K)' : 'Lob (K)'}</span>
+              <UserPlus size={13} />
+              <span>{lang === 'vi' ? 'Treo (K)' : 'Lob (K)'}</span>
             </button>
 
             <button
@@ -1016,13 +1042,13 @@ export function BottomDock({
                 onMatchPass();
               }}
               title="J / C"
-              className={`flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-lg transition-colors whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold shadow transition-colors whitespace-nowrap cursor-pointer ${
                 canPlayMatch
                   ? 'bg-sky-400 hover:bg-sky-300 text-slate-950'
                   : 'bg-slate-800/70 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <Send size={15} />
+              <Send size={13} />
               <span>{lang === 'vi' ? 'Chuyền (J)' : 'Pass (J)'}</span>
             </button>
 
@@ -1034,14 +1060,14 @@ export function BottomDock({
                 onMatchSlideTackle();
               }}
               title={lang === 'vi' ? 'Soạt Bóng (Phím X)' : 'Slide Tackle (X)'}
-              className={`flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold border shadow-lg transition-colors whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border shadow transition-colors whitespace-nowrap cursor-pointer ${
                 canPlayMatch
                   ? 'bg-rose-500 hover:bg-rose-400 border-rose-200/70 text-white'
                   : 'bg-slate-800/70 border-white/5 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <ShieldAlert size={15} />
-              <span>{lang === 'vi' ? 'Soạt Bóng (X)' : 'Slide (X)'}</span>
+              <ShieldAlert size={13} />
+              <span>{lang === 'vi' ? 'Soạt (X)' : 'Slide (X)'}</span>
             </button>
 
             <button
@@ -1052,21 +1078,21 @@ export function BottomDock({
                 onMatchShoot();
               }}
               title="Space / Enter"
-              className={`col-span-2 flex items-center justify-center gap-1.5 px-5 py-3 rounded-xl font-display text-base sm:text-lg font-extrabold tracking-wide shadow-2xl border-2 transition-all active:scale-95 whitespace-nowrap cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg font-display text-sm font-extrabold tracking-wide shadow-xl border transition-all active:scale-95 whitespace-nowrap cursor-pointer ${
                 canPlayMatch
                   ? 'bg-emerald-500 hover:bg-emerald-400 border-emerald-200/80 text-slate-950'
                   : 'bg-slate-800/70 border-white/10 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <Zap size={18} fill="currentColor" />
+              <Zap size={15} fill="currentColor" />
               <span>
                 {lang === 'vi'
                   ? snapshot.matchPossession === 'away'
-                    ? 'CƯỚP BÓNG (Space)'
-                    : 'SÚT BÓNG (Space)'
+                    ? 'CƯỚP (Space)'
+                    : 'SÚT (Space)'
                   : snapshot.matchPossession === 'away'
-                  ? 'TACKLE (Space)'
-                  : 'SHOOT (Space)'}
+                  ? 'TACKLE'
+                  : 'SHOOT'}
               </span>
             </button>
           </div>
@@ -1078,85 +1104,67 @@ export function BottomDock({
   return (
     <>
       {showFloatingShoot ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.currentTarget.blur();
-            onQuickShoot();
-          }}
-          title="Sút bóng ngay (Enter)"
-          className={`fixed right-4 sm:right-6 z-30 flex items-center gap-2 px-5 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-display text-lg font-extrabold tracking-wide shadow-2xl border-2 border-emerald-200/80 transition-all cursor-pointer whitespace-nowrap ${
-            collapsed ? 'bottom-5' : 'bottom-48 sm:bottom-40'
+        <div
+          className={`fixed right-3 sm:right-5 z-30 flex items-center gap-2 ${
+            collapsed ? 'bottom-4' : 'bottom-28 sm:bottom-24'
           }`}
         >
-          <Zap size={20} fill="currentColor" />
-          <span>{lang === 'vi' ? 'SÚT BÓNG (Enter)' : 'SHOOT (Enter)'}</span>
-        </button>
+          {isCornerSpot && canCrossHeader ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onShootCrossHeader();
+              }}
+              title="Treo bóng bổng cho đồng đội #9 bật cao đánh đầu & đá bồi"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-display text-xs sm:text-sm font-extrabold tracking-wide shadow-xl border border-amber-200/80 transition-all cursor-pointer whitespace-nowrap"
+            >
+              <UserPlus size={15} />
+              <span>{lang === 'vi' ? 'TREO ĐÁNH ĐẦU (#9)' : 'CROSS (#9)'}</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onQuickShoot();
+            }}
+            title="Sút bóng ngay (Enter)"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-display text-sm sm:text-base font-extrabold tracking-wide shadow-xl border border-emerald-200/80 transition-all cursor-pointer whitespace-nowrap"
+          >
+            <Zap size={16} fill="currentColor" />
+            <span>{lang === 'vi' ? 'SÚT BÓNG (Enter)' : 'SHOOT (Enter)'}</span>
+          </button>
+        </div>
       ) : null}
 
       <div
-        className={`pointer-events-none fixed bottom-3 left-1/2 -translate-x-1/2 z-20 w-[min(1040px,96vw)] transition-transform duration-200 ${
-          collapsed ? 'translate-y-[calc(100%-34px)]' : 'translate-y-0'
+        className={`pointer-events-none fixed bottom-2 left-1/2 -translate-x-1/2 z-20 w-[min(98vw,1560px)] transition-transform duration-200 ${
+          collapsed ? 'translate-y-[calc(100%-26px)]' : 'translate-y-0'
         }`}
       >
-      {/* Collapse / Expand Handle */}
-      <div className="flex justify-center mb-1.5">
+      {/* Slim Collapse / Expand Handle */}
+      <div className="flex justify-center mb-1">
         <button
           type="button"
           onClick={onToggleCollapse}
-          className="pointer-events-auto flex items-center gap-1.5 px-3 py-1 bg-[#0B1320]/90 border border-white/10 rounded-md text-[11px] font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+          className="pointer-events-auto flex items-center gap-1 px-2.5 py-0.5 bg-[#0B1320]/90 border border-white/10 rounded-md text-[10px] font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
         >
-          {collapsed ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {collapsed ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           <span>{collapsed ? 'Mở Bảng Điều Khiển (H)' : 'Thu Gọn (H)'}</span>
         </button>
       </div>
 
-      {/* Main Dock Body */}
-      <div className="pointer-events-auto bg-[#0B1320]/92 border border-white/12 rounded-xl px-4 py-3 shadow-2xl">
-        {/* Top Row: Match Banner OR Kicker OR Goalkeeper Selector + Unified Difficulty Mode Selector */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 pb-2.5 mb-2.5 border-b border-white/10">
-          {isMatchMode ? (
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <div className="flex items-center gap-2 bg-slate-900/90 px-2.5 py-1 rounded-lg border border-white/10 text-xs">
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-sm shrink-0 border border-white/30"
-                  style={{ backgroundColor: homeTeam.jerseyColor }}
-                  aria-hidden="true"
-                />
-                <span className="font-bold text-emerald-300">
-                  {homeTeam.name}
-                </span>
-                <span className="text-slate-500">vs</span>
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-sm shrink-0 border border-white/30"
-                  style={{
-                    backgroundColor:
-                      homeTeam.id === awayTeam.id
-                        ? awayTeam.altJerseyColor
-                        : awayTeam.jerseyColor,
-                  }}
-                  aria-hidden="true"
-                />
-                <span className="font-bold text-rose-300">{awayTeam.name}</span>
-              </div>
-
-              <span className="font-mono-tabular text-xs text-slate-300">
-                Cú sút:{' '}
-                <strong className="text-emerald-400">
-                  {snapshot.matchShotsHome}
-                </strong>{' '}
-                -{' '}
-                <strong className="text-rose-400">
-                  {snapshot.matchShotsAway}
-                </strong>
-              </span>
-            </div>
-          ) : isGkTurn ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] font-semibold text-amber-300 whitespace-nowrap">
+      {/* Main Flat Wide Dock Body */}
+      <div className="pointer-events-auto bg-[#0B1320]/92 border border-white/12 rounded-xl px-2.5 py-1.5 shadow-2xl">
+        {/* Top Flat Row: Kicker/GK + Practice Focus/Spot + Difficulty + Weather/Skin/Aura + Camera (Single Horizontal Scrollable Line) */}
+        <div className="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-white/10 overflow-x-auto">
+          {isGkTurn ? (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10.5px] font-semibold text-amber-300 whitespace-nowrap">
                 GK
               </span>
-              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-white/5 overflow-x-auto max-w-full sm:max-w-[520px]">
+              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-md border border-white/5">
                 {GK_ORDER.map((id) => {
                   const gk = GK_PROFILES[id];
                   const active = snapshot.gkId === id;
@@ -1166,7 +1174,7 @@ export function BottomDock({
                       type="button"
                       disabled={snapshot.phase !== 'aiming'}
                       onClick={() => onSetGoalkeeper(id)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         active
                           ? 'bg-amber-300 text-slate-950'
                           : 'text-slate-300 hover:text-white'
@@ -1187,11 +1195,11 @@ export function BottomDock({
                 })}
               </div>
               {snapshot.mode === 'gk_practice' ? (
-                <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-white/5">
+                <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-md border border-white/5">
                   <button
                     type="button"
                     onClick={() => onSetPracticeFocus('freekick')}
-                    className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                       snapshot.practiceFocus === 'freekick'
                         ? 'bg-emerald-500 text-slate-950'
                         : 'text-slate-300 hover:text-white'
@@ -1202,7 +1210,7 @@ export function BottomDock({
                   <button
                     type="button"
                     onClick={() => onSetPracticeFocus('penalty')}
-                    className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                    className={`px-2 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                       snapshot.practiceFocus === 'penalty'
                         ? 'bg-rose-400 text-slate-950'
                         : 'text-slate-300 hover:text-white'
@@ -1211,15 +1219,11 @@ export function BottomDock({
                     Tập Bắt Penalty
                   </button>
                 </div>
-              ) : (
-                <span className="hidden xl:inline text-xs text-slate-400 whitespace-nowrap">
-                  {activeGk.specialty}
-                </span>
-              )}
+              ) : null}
             </div>
           ) : (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-white/5 overflow-x-auto max-w-full sm:max-w-[600px]">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-md border border-white/5">
                 {KICKER_ORDER.map((id) => {
                   const k = KICKER_PROFILES[id];
                   const active = snapshot.kickerId === id;
@@ -1229,7 +1233,7 @@ export function BottomDock({
                       type="button"
                       disabled={!canShoot}
                       onClick={() => onSetKicker(id)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         active
                           ? 'bg-slate-100 text-slate-950'
                           : 'text-slate-300 hover:text-white'
@@ -1249,19 +1253,78 @@ export function BottomDock({
                 })}
               </div>
 
-              <span className="hidden xl:inline text-[11px] text-slate-400 whitespace-nowrap">
-                {activeKicker.specialty} · Chân{' '}
-                {activeKicker.foot === 'left' ? 'trái' : 'phải'}
-              </span>
+              {snapshot.mode === 'practice' ? (
+                <>
+                  <div className="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-md border border-white/10">
+                    <button
+                      type="button"
+                      onClick={() => onSetPracticeFocus('freekick')}
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                        snapshot.practiceFocus === 'freekick'
+                          ? 'bg-emerald-500 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Sút Phạt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetPracticeFocus('penalty')}
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                        snapshot.practiceFocus === 'penalty'
+                          ? 'bg-rose-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Penalty
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetPracticeFocus('corner')}
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                        snapshot.practiceFocus === 'corner'
+                          ? 'bg-cyan-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Phạt Góc
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetPracticeFocus('curve_lab')}
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                        snapshot.practiceFocus === 'curve_lab'
+                          ? 'bg-sky-400 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Xoáy
+                    </button>
+                  </div>
+
+                  <select
+                    aria-label="Chọn vị trí đá phạt"
+                    value={snapshot.scenario.id}
+                    onChange={(e) => onSelectSpot(e.target.value)}
+                    className="h-6 px-1.5 bg-slate-900 border border-white/10 rounded-md text-[10.5px] font-medium text-slate-200 focus:outline-none focus:border-emerald-400 cursor-pointer"
+                  >
+                    {(snapshot.practiceFocus === 'curve_lab'
+                      ? CURVE_LAB_SPOTS
+                      : PRACTICE_SPOTS
+                    ).map((spot) => (
+                      <option key={spot.id} value={spot.id}>
+                        {spot.label}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
             </div>
           )}
 
-          {/* Difficulty Switcher */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-medium text-slate-400 whitespace-nowrap">
-              Độ khó
-            </span>
-            <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-white/5">
+          {/* Compact Right Controls: Difficulty, Weather, Skin, Aura, Camera & 360 Orbit */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-md border border-white/5">
               {DIFFICULTY_ORDER.map((diff) => {
                 const info = DIFFICULTY_LABELS[diff];
                 const active = snapshot.difficulty === diff;
@@ -1270,7 +1333,7 @@ export function BottomDock({
                     key={diff}
                     type="button"
                     onClick={() => onSetDifficulty(diff)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       active
                         ? diff === 'extreme'
                           ? 'bg-purple-500 text-white'
@@ -1287,234 +1350,170 @@ export function BottomDock({
                 );
               })}
             </div>
-            <span className="hidden sm:inline font-mono-tabular text-[11px] text-slate-400">
-              ×{DIFFICULTY_LABELS[snapshot.difficulty].scoreMult.toFixed(1)} điểm
-            </span>
+
+            <select
+              aria-label={lang === 'vi' ? 'Thời tiết sân đấu' : 'Stadium Weather'}
+              value={snapshot.weather}
+              onChange={(e) => onSetWeather(e.target.value as WeatherType)}
+              className="h-6 px-1.5 bg-slate-900 border border-sky-400/35 rounded-md text-[10.5px] font-semibold text-sky-200 focus:outline-none cursor-pointer"
+            >
+              {WEATHER_OPTIONS.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {lang === 'vi' ? w.labelVi : w.labelEn}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label={lang === 'vi' ? 'Skin Cầu Thủ' : 'Player Skin'}
+              value={snapshot.playerSkinId}
+              onChange={(e) => onSetPlayerSkin(e.target.value as PlayerSkinId)}
+              className="h-6 px-1.5 bg-slate-900 border border-emerald-400/35 rounded-md text-[10.5px] font-semibold text-emerald-200 focus:outline-none cursor-pointer"
+            >
+              {SKIN_ORDER.map((skinId) => (
+                <option key={skinId} value={skinId}>
+                  Skin: {lang === 'vi' ? PLAYER_SKINS[skinId].nameVi : PLAYER_SKINS[skinId].nameEn}
+                </option>
+              ))}
+            </select>
+
+            <select
+              aria-label={lang === 'vi' ? 'Hào Quang Chạy' : 'Running Aura'}
+              value={snapshot.runningAuraId}
+              onChange={(e) => onSetRunningAura(e.target.value as RunningAuraId)}
+              className="h-6 px-1.5 bg-slate-900 border border-amber-400/35 rounded-md text-[10.5px] font-semibold text-amber-200 focus:outline-none cursor-pointer"
+            >
+              {RUNNING_AURA_ORDER.map((auraId) => (
+                <option key={auraId} value={auraId}>
+                  {lang === 'vi' ? RUNNING_AURAS[auraId].nameVi : RUNNING_AURAS[auraId].nameEn}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={() => cycleCameraPreset()}
+              title="Đổi góc camera (V)"
+              className="flex items-center gap-1 h-6 px-2 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-md text-[10.5px] font-medium text-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Camera size={12} />
+              <span>
+                {snapshot.cameraPreset === 'kicker'
+                  ? 'Góc Sút'
+                  : snapshot.cameraPreset === 'broadcast'
+                  ? 'Toàn Cảnh'
+                  : 'Sau Gôn'}
+              </span>
+            </button>
+
+            <div className="flex items-center gap-0.5 bg-slate-900/95 p-0.5 rounded-md border border-sky-400/30">
+              <button
+                type="button"
+                onClick={() => onToggleCameraOrbit()}
+                title={
+                  lang === 'vi'
+                    ? 'Bật chế độ kéo chuột trái xoay camera 360°'
+                    : 'Toggle 360° camera rotation'
+                }
+                className={`flex items-center gap-1 h-5 px-1.5 rounded text-[10.5px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                  snapshot.cameraOrbitMode
+                    ? 'bg-sky-400 text-slate-950'
+                    : 'text-sky-300 hover:bg-slate-800'
+                }`}
+              >
+                <Compass size={11} />
+                <span>360°</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNudgeCameraOrbit(-0.32, 0)}
+                title="Xoay camera sang trái"
+                aria-label="Xoay camera sang trái"
+                className="flex items-center justify-center w-5 h-5 rounded text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <ArrowLeft size={11} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onNudgeCameraOrbit(0.32, 0)}
+                title="Xoay camera sang phải"
+                aria-label="Xoay camera sang phải"
+                className="flex items-center justify-center w-5 h-5 rounded text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <ArrowRight size={11} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onNudgeCameraOrbit(0, -0.18)}
+                title="Nâng góc camera lên cao"
+                aria-label="Nâng góc camera lên cao"
+                className="flex items-center justify-center w-5 h-5 rounded text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <ArrowUp size={11} />
+              </button>
+              <button
+                type="button"
+                onClick={() => onNudgeCameraOrbit(0, 0.18)}
+                title="Hạ góc camera xuống sát sân"
+                aria-label="Hạ góc camera xuống sát sân"
+                className="flex items-center justify-center w-5 h-5 rounded text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <ArrowDown size={11} />
+              </button>
+              {snapshot.cameraHasCustomOrbit ? (
+                <button
+                  type="button"
+                  onClick={() => onResetCameraOrbit()}
+                  title="Đặt lại góc camera"
+                  className="flex items-center gap-0.5 h-5 px-1.5 rounded bg-amber-400/20 hover:bg-amber-400/30 text-[10px] font-bold text-amber-200 whitespace-nowrap cursor-pointer"
+                >
+                  <RotateCcw size={10} />
+                </button>
+              ) : null}
+            </div>
+
+            {snapshot.mode === 'practice' ? (
+              <button
+                type="button"
+                onClick={onRetrySpot}
+                title="Đặt lại bóng"
+                className="flex items-center justify-center w-6 h-6 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-md text-slate-200 transition-colors cursor-pointer"
+              >
+                <RotateCcw size={12} />
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {/* Main Action Row: 3D Match Controls OR Playable GK Dive OR Kicker Controls */}
-        {isMatchMode ? (
-          <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-            {/* On-screen D-pad for touch/mouse movement */}
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="grid grid-cols-3 gap-1 w-28">
-                <div />
-                <button
-                  type="button"
-                  disabled={!canPlayMatch}
-                  aria-label="Chạy lên (W)"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    onMatchMoveInput(0, -1);
-                  }}
-                  onPointerUp={() => onMatchMoveInput(0, 0)}
-                  onPointerLeave={() => onMatchMoveInput(0, 0)}
-                  onPointerCancel={() => onMatchMoveInput(0, 0)}
-                  className="flex items-center justify-center h-8 rounded-md bg-slate-800 hover:bg-slate-700 active:bg-emerald-500 active:text-slate-950 border border-white/10 text-slate-100 cursor-pointer"
-                >
-                  <ArrowUp size={15} />
-                </button>
-                <div />
-                <button
-                  type="button"
-                  disabled={!canPlayMatch}
-                  aria-label="Chạy trái (A)"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    onMatchMoveInput(-1, 0);
-                  }}
-                  onPointerUp={() => onMatchMoveInput(0, 0)}
-                  onPointerLeave={() => onMatchMoveInput(0, 0)}
-                  onPointerCancel={() => onMatchMoveInput(0, 0)}
-                  className="flex items-center justify-center h-8 rounded-md bg-slate-800 hover:bg-slate-700 active:bg-emerald-500 active:text-slate-950 border border-white/10 text-slate-100 cursor-pointer"
-                >
-                  <ArrowLeft size={15} />
-                </button>
-                <button
-                  type="button"
-                  disabled={!canPlayMatch}
-                  aria-label="Chạy lùi (S)"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    onMatchMoveInput(0, 1);
-                  }}
-                  onPointerUp={() => onMatchMoveInput(0, 0)}
-                  onPointerLeave={() => onMatchMoveInput(0, 0)}
-                  onPointerCancel={() => onMatchMoveInput(0, 0)}
-                  className="flex items-center justify-center h-8 rounded-md bg-slate-800 hover:bg-slate-700 active:bg-emerald-500 active:text-slate-950 border border-white/10 text-slate-100 cursor-pointer"
-                >
-                  <ArrowDown size={15} />
-                </button>
-                <button
-                  type="button"
-                  disabled={!canPlayMatch}
-                  aria-label="Chạy phải (D)"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    onMatchMoveInput(1, 0);
-                  }}
-                  onPointerUp={() => onMatchMoveInput(0, 0)}
-                  onPointerLeave={() => onMatchMoveInput(0, 0)}
-                  onPointerCancel={() => onMatchMoveInput(0, 0)}
-                  className="flex items-center justify-center h-8 rounded-md bg-slate-800 hover:bg-slate-700 active:bg-emerald-500 active:text-slate-950 border border-white/10 text-slate-100 cursor-pointer"
-                >
-                  <ArrowRight size={15} />
-                </button>
-              </div>
-
-              <div className="text-xs text-slate-300 leading-snug">
-                <div className="font-bold text-white">
-                  {snapshot.matchPossession === 'home'
-                    ? 'Đội bạn đang giữ bóng'
-                    : snapshot.matchPossession === 'away'
-                    ? `${awayTeam.shortCode} đang tấn công!`
-                    : 'Bóng tự do — Tranh bóng!'}
-                </div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
-                  WASD / Mũi tên di chuyển · Shift chạy nhanh
-                </div>
-              </div>
-            </div>
-
-            {/* Center/Right Match Action Buttons */}
-            <div className="flex flex-wrap items-center justify-center md:justify-end gap-2">
-              <button
-                type="button"
-                disabled={!canPlayMatch}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onMatchSwitchPlayer();
-                }}
-                title="Đổi sang cầu thủ gần bóng nhất (Q / Tab)"
-                className={`flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer border ${
-                  canPlayMatch
-                    ? 'bg-slate-800 hover:bg-slate-700 border-white/15 text-slate-100'
-                    : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                <Repeat size={14} />
-                <span>{lang === 'vi' ? 'Đổi Người (Q)' : 'Switch (Q)'}</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={!canPlayMatch}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onMatchPass();
-                }}
-                title="Chuyền sệt cho đồng đội (J / C)"
-                className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                  canPlayMatch
-                    ? 'bg-sky-400 hover:bg-sky-300 text-slate-950'
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                <Send size={14} />
-                <span>{lang === 'vi' ? 'Chuyền (J)' : 'Pass (J)'}</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={!canPlayMatch}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onMatchLobPass();
-                }}
-                title="Treo bóng bổng lên phía trên (K / E)"
-                className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                  canPlayMatch
-                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                <UserPlus size={14} />
-                <span>{lang === 'vi' ? 'Treo Bổng (K)' : 'Lob (K)'}</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={!canPlayMatch}
-                onClick={(e) => {
-                  e.currentTarget.blur();
-                  onMatchShoot();
-                }}
-                title="Sút cầu môn hoặc lao vào cướp bóng (Space)"
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                  canPlayMatch
-                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                }`}
-              >
-                <Zap size={15} fill="currentColor" />
-                <span>
-                  {lang === 'vi'
-                    ? snapshot.matchPossession === 'away'
-                      ? 'Cướp / Sút (Space)'
-                      : 'Sút Bóng (Space)'
-                    : snapshot.matchPossession === 'away'
-                    ? 'Tackle / Shoot (Space)'
-                    : 'Shoot (Space)'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const order: CameraPreset[] = [
-                    'kicker',
-                    'broadcast',
-                    'behind_goal',
-                  ];
-                  const next =
-                    order[
-                      (order.indexOf(snapshot.cameraPreset) + 1) % order.length
-                    ];
-                  onSetCamera(next);
-                }}
-                title="Đổi góc camera trận đấu (Phím V)"
-                className="flex items-center gap-1.5 h-10 px-3 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-lg text-xs font-medium text-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Camera size={14} />
-                <span>
-                  {snapshot.cameraPreset === 'broadcast'
-                    ? 'Toàn Sân (V)'
-                    : snapshot.cameraPreset === 'behind_goal'
-                    ? 'Gôn Bắc (V)'
-                    : 'Hành Động (V)'}
-                </span>
-              </button>
-            </div>
-          </div>
-        ) : isGkTurn ? (
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-11 h-11 rounded-lg bg-amber-400/15 border border-amber-400/35 text-amber-300 shrink-0">
-                <ShieldAlert size={20} />
+        {/* Main Action Row: Playable GK Dive OR Ultra-Slim Edge-to-Edge Kicker Controls */}
+        {isGkTurn ? (
+          <div className="flex flex-col md:flex-row items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-amber-400/15 border border-amber-400/35 text-amber-300 shrink-0">
+                <ShieldAlert size={17} />
               </div>
               <div>
                 <div className="text-xs font-semibold text-amber-300">
                   Bot #{botKicker.numberStr} {botKicker.shortName} đang chuẩn bị sút phạt!
                 </div>
-                <div className="text-xs text-slate-300 mt-0.5">
-                  {snapshot.scenario.label} · Gió: {windDirLabel} · Chạm thẳng vào khung thành để bay người bắt bóng
+                <div className="text-[11px] text-slate-300">
+                  {snapshot.scenario.label} · Gió: {windDirLabel} · Chạm thẳng khung thành để bắt bóng
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 disabled={!canDive}
                 onClick={() => onGkDive('left')}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
                   canDive
                     ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                <CornerUpLeft size={16} strokeWidth={2.5} />
+                <CornerUpLeft size={14} strokeWidth={2.5} />
                 <span>Bay Trái (←)</span>
               </button>
 
@@ -1522,13 +1521,13 @@ export function BottomDock({
                 type="button"
                 disabled={!canDive}
                 onClick={() => onGkDive('center')}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer border ${
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer border ${
                   canDive
                     ? 'bg-slate-800 hover:bg-slate-700 border-white/15 text-white'
                     : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                <ArrowUp size={16} strokeWidth={2.5} />
+                <ArrowUp size={14} strokeWidth={2.5} />
                 <span>Nhảy Giữa (Space)</span>
               </button>
 
@@ -1536,21 +1535,21 @@ export function BottomDock({
                 type="button"
                 disabled={!canDive}
                 onClick={() => onGkDive('right')}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
                   canDive
                     ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
                     : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 }`}
               >
                 <span>Bay Phải (→)</span>
-                <CornerUpRight size={16} strokeWidth={2.5} />
+                <CornerUpRight size={14} strokeWidth={2.5} />
               </button>
             </div>
           </div>
         ) : (
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            {/* Left: Tactile Ball Contact / Spin Pad */}
-            <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-2.5">
+            {/* Left: Compact Ball Contact / Spin Pad + Inline Slider & Quick Presets */}
+            <div className="flex items-center gap-2 shrink-0">
               <div
                 ref={padRef}
                 role="slider"
@@ -1569,39 +1568,17 @@ export function BottomDock({
                 }}
                 onPointerUp={() => setDraggingSpin(false)}
                 onDoubleClick={() => onSpinChange({ curve: 0, dip: 0.15 })}
-                className="relative w-16 h-16 rounded-full bg-slate-100 border-2 border-slate-300 shadow-inner cursor-crosshair shrink-0 overflow-hidden"
+                className="relative w-11 h-11 rounded-full bg-slate-100 border-2 border-slate-300 shadow-inner cursor-crosshair shrink-0 overflow-hidden"
                 title="Kéo điểm đỏ để chỉnh độ xoáy (Nháy đúp để đặt lại)"
               >
-                <svg
-                  viewBox="0 0 64 64"
-                  className="w-full h-full opacity-25 pointer-events-none"
-                >
-                  <polygon
-                    points="32,18 44,27 39,41 25,41 20,27"
-                    fill="#0f172a"
-                  />
-                  <line
-                    x1="32"
-                    y1="0"
-                    x2="32"
-                    y2="64"
-                    stroke="#0f172a"
-                    strokeWidth="1"
-                    strokeDasharray="2 2"
-                  />
-                  <line
-                    x1="0"
-                    y1="32"
-                    x2="64"
-                    y2="32"
-                    stroke="#0f172a"
-                    strokeWidth="1"
-                    strokeDasharray="2 2"
-                  />
+                <svg viewBox="0 0 64 64" className="w-full h-full opacity-25 pointer-events-none">
+                  <polygon points="32,18 44,27 39,41 25,41 20,27" fill="#0f172a" />
+                  <line x1="32" y1="0" x2="32" y2="64" stroke="#0f172a" strokeWidth="1" strokeDasharray="2 2" />
+                  <line x1="0" y1="32" x2="64" y2="32" stroke="#0f172a" strokeWidth="1" strokeDasharray="2 2" />
                 </svg>
 
                 <div
-                  className="absolute w-3.5 h-3.5 -ml-1.75 -mt-1.75 rounded-full bg-rose-500 border-2 border-white shadow pointer-events-none"
+                  className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full bg-rose-500 border-2 border-white shadow pointer-events-none"
                   style={{
                     left: `${50 + snapshot.spin.curve * 38}%`,
                     top: `${50 - snapshot.spin.dip * 38}%`,
@@ -1609,33 +1586,77 @@ export function BottomDock({
                 />
               </div>
 
-              <div className="text-left min-w-[126px]">
-                <div className="text-[11px] font-medium text-slate-400">
-                  Điểm Chạm Bóng
+              <div className="text-left">
+                <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                  <span className="font-semibold text-white whitespace-nowrap">{spinText}</span>
+                  <span className="font-mono-tabular font-semibold text-cyan-300">
+                    {snapshot.previewBendMeters >= 0 ? '+' : '-'}
+                    {Math.abs(snapshot.previewBendMeters).toFixed(1)}m
+                  </span>
                 </div>
-                <div className="text-xs font-semibold text-white whitespace-nowrap">
-                  {spinText}
-                </div>
-                <div className="flex items-center gap-1 mt-1.5">
+
+                <div className="flex items-center gap-1 mt-0.5">
                   <button
                     type="button"
                     disabled={!canShoot}
-                    onClick={() => onSpinChange({ curve: -0.9, dip: 0.36 })}
-                    title="Đặt xoáy trái tối đa"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
-                      snapshot.spin.curve <= -0.55
+                    onClick={() =>
+                      onSpinChange({
+                        curve: Number(Math.max(-1, snapshot.spin.curve - 0.15).toFixed(2)),
+                        dip: snapshot.spin.dip,
+                      })
+                    }
+                    title="Tăng xoáy trái (-15%)"
+                    className="px-1 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-white/10 text-[10px] font-bold text-slate-200 disabled:opacity-40 cursor-pointer"
+                  >
+                    ↶
+                  </button>
+                  <input
+                    type="range"
+                    aria-label="Chỉnh độ xoáy ngang"
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    disabled={!canShoot}
+                    value={snapshot.spin.curve}
+                    onChange={(e) =>
+                      onSpinChange({
+                        curve: Number(e.target.value),
+                        dip: snapshot.spin.dip,
+                      })
+                    }
+                    className="w-20 h-1 accent-cyan-400 cursor-pointer disabled:opacity-40"
+                  />
+                  <button
+                    type="button"
+                    disabled={!canShoot}
+                    onClick={() =>
+                      onSpinChange({
+                        curve: Number(Math.min(1, snapshot.spin.curve + 0.15).toFixed(2)),
+                        dip: snapshot.spin.dip,
+                      })
+                    }
+                    title="Tăng xoáy phải (+15%)"
+                    className="px-1 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-white/10 text-[10px] font-bold text-slate-200 disabled:opacity-40 cursor-pointer"
+                  >
+                    ↷
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canShoot}
+                    onClick={() => onSpinChange({ curve: -0.65, dip: 0.25 })}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer whitespace-nowrap ${
+                      snapshot.spin.curve <= -0.35
                         ? 'bg-sky-500 text-slate-950 border-sky-400'
                         : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
                     } ${!canShoot ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    ↶ Trái
+                    Trái
                   </button>
                   <button
                     type="button"
                     disabled={!canShoot}
                     onClick={() => onSpinChange({ curve: 0, dip: 0.15 })}
-                    title="Đặt sút thẳng"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer whitespace-nowrap ${
                       Math.abs(snapshot.spin.curve) < 0.12
                         ? 'bg-slate-200 text-slate-950 border-white'
                         : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
@@ -1646,120 +1667,74 @@ export function BottomDock({
                   <button
                     type="button"
                     disabled={!canShoot}
-                    onClick={() => onSpinChange({ curve: 0.9, dip: 0.36 })}
-                    title="Đặt xoáy phải tối đa"
-                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border transition-colors cursor-pointer whitespace-nowrap ${
-                      snapshot.spin.curve >= 0.55
+                    onClick={() => onSpinChange({ curve: 0.65, dip: 0.25 })}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer whitespace-nowrap ${
+                      snapshot.spin.curve >= 0.35
                         ? 'bg-sky-500 text-slate-950 border-sky-400'
                         : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
                     } ${!canShoot ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    Phải ↷
+                    Phải
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canShoot}
+                    onClick={() =>
+                      onSpinChange({
+                        curve: snapshot.spin.curve,
+                        dip: snapshot.spin.dip >= 0.45 ? 0.1 : 0.65,
+                      })
+                    }
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border cursor-pointer whitespace-nowrap ${
+                      snapshot.spin.dip >= 0.45
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-300'
+                        : 'bg-slate-900 text-slate-300 border-white/10 hover:text-white'
+                    } ${!canShoot ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    Chúi
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Center: Scenario Info, Power Meter & Shoot Buttons */}
-            <div className="flex-1 w-full flex flex-col gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
-                <div className="flex items-center gap-2 whitespace-nowrap">
-                  <span className="font-semibold text-white">
-                    {snapshot.scenario.label}
-                  </span>
-                  <span className="text-slate-600" aria-hidden="true">
-                    ·
-                  </span>
+            {/* Right / Full Remaining Width: Power Bar + Aim + Shoot Buttons + Single-Line Skills Strip */}
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <div className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-300 whitespace-nowrap shrink-0 mr-1">
+                  <span className="font-semibold text-white">{snapshot.scenario.label}</span>
+                  <span className="text-slate-600" aria-hidden="true">·</span>
                   <span>
-                    {snapshot.scenario.wallCount > 0
-                      ? `Hàng rào ${snapshot.scenario.wallCount} người`
-                      : 'Không hàng rào'}
+                    {snapshot.scenario.wallCount > 0 ? `Rào ${snapshot.scenario.wallCount}` : 'Trống'}
                   </span>
-                  <span className="text-slate-600" aria-hidden="true">
-                    ·
-                  </span>
-                  <span>Gió: {windDirLabel}</span>
+                  <span className="text-slate-600" aria-hidden="true">·</span>
+                  <span>{windDirLabel}</span>
                 </div>
 
-                <div className="font-mono-tabular text-xs text-slate-300">
-                  Lực sút:{' '}
-                  <strong
-                    className={
-                      powerPct >= 88
-                        ? 'text-rose-400'
-                        : powerPct >= 60
-                        ? 'text-emerald-400'
-                        : 'text-amber-300'
-                    }
-                  >
-                    {powerPct}%
-                  </strong>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
-                {/* PC Clickable Aim Pad */}
-                <div className="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-lg border border-white/10 shrink-0">
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onClick={() => onNudgeAim(-0.45, 0)}
-                    title={lang === 'vi' ? 'Ngắm sang trái (←)' : 'Aim Left'}
-                    className="p-1.5 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
-                  >
-                    <ArrowLeft size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onClick={() => onNudgeAim(0, 0.25)}
-                    title={lang === 'vi' ? 'Ngắm cao hơn (↑)' : 'Aim Up'}
-                    className="p-1.5 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
-                  >
-                    <ArrowUp size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onClick={() => onNudgeAim(0, -0.25)}
-                    title={lang === 'vi' ? 'Ngắm thấp hơn (↓)' : 'Aim Down'}
-                    className="p-1.5 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
-                  >
-                    <ArrowDown size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onClick={() => onNudgeAim(0.45, 0)}
-                    title={lang === 'vi' ? 'Ngắm sang phải (→)' : 'Aim Right'}
-                    className="p-1.5 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"
-                  >
-                    <ArrowRight size={13} />
-                  </button>
+                {/* Compact Aim Pad */}
+                <div className="flex items-center gap-0.5 bg-slate-900/90 p-0.5 rounded-md border border-white/10 shrink-0">
+                  <button type="button" disabled={!canShoot} onClick={() => onNudgeAim(-0.45, 0)} title="Ngắm trái" className="p-1 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"><ArrowLeft size={12} /></button>
+                  <button type="button" disabled={!canShoot} onClick={() => onNudgeAim(0, 0.25)} title="Ngắm cao" className="p-1 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"><ArrowUp size={12} /></button>
+                  <button type="button" disabled={!canShoot} onClick={() => onNudgeAim(0, -0.25)} title="Ngắm thấp" className="p-1 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"><ArrowDown size={12} /></button>
+                  <button type="button" disabled={!canShoot} onClick={() => onNudgeAim(0.45, 0)} title="Ngắm phải" className="p-1 rounded hover:bg-slate-800 text-slate-200 disabled:opacity-40 cursor-pointer"><ArrowRight size={12} /></button>
                 </div>
 
                 {/* Power - / Bar / + */}
                 <button
                   type="button"
                   disabled={!canShoot || snapshot.phase === 'charging'}
-                  onClick={() =>
-                    onPowerChange(
-                      Number(Math.max(0.18, snapshot.power - 0.08).toFixed(2)),
-                    )
-                  }
-                  title="Giảm lực sút"
-                  className="p-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                  onClick={() => onPowerChange(Number(Math.max(0.18, snapshot.power - 0.08).toFixed(2)))}
+                  title="Giảm lực"
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
                 >
-                  <Minus size={12} />
+                  <Minus size={11} />
                 </button>
                 <div
                   ref={powerBarRef}
                   role="slider"
-                  aria-label="Thanh lực sút (nhấn hoặc kéo để chọn lực)"
+                  aria-label="Thanh lực sút"
                   aria-valuemin={18}
                   aria-valuemax={100}
                   aria-valuenow={powerPct}
-                  title="Nhấn hoặc kéo thanh lực để chỉnh lực sút"
                   onPointerDown={(e) => {
                     if (!canShoot || snapshot.phase === 'charging') return;
                     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1771,7 +1746,7 @@ export function BottomDock({
                     updatePowerFromPointer(e.clientX);
                   }}
                   onPointerUp={() => setDraggingPower(false)}
-                  className="relative flex-1 min-w-[90px] h-5 bg-slate-900 rounded-md overflow-hidden border border-white/15 cursor-ew-resize"
+                  className="relative flex-1 min-w-[85px] h-4 bg-slate-900 rounded overflow-hidden border border-white/15 cursor-ew-resize"
                 >
                   <div
                     className="absolute top-0 bottom-0 bg-emerald-500/20 border-x border-emerald-400/40 pointer-events-none"
@@ -1791,16 +1766,19 @@ export function BottomDock({
                 <button
                   type="button"
                   disabled={!canShoot || snapshot.phase === 'charging'}
-                  onClick={() =>
-                    onPowerChange(
-                      Number(Math.min(1, snapshot.power + 0.08).toFixed(2)),
-                    )
-                  }
-                  title="Tăng lực sút"
-                  className="p-1.5 rounded-md bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
+                  onClick={() => onPowerChange(Number(Math.min(1, snapshot.power + 0.08).toFixed(2)))}
+                  title="Tăng lực"
+                  className="p-1 rounded bg-slate-900 hover:bg-slate-800 border border-white/10 text-slate-200 disabled:opacity-40 cursor-pointer shrink-0"
                 >
-                  <Plus size={12} />
+                  <Plus size={11} />
                 </button>
+                <span
+                  className={`font-mono-tabular text-[11px] font-bold shrink-0 ${
+                    powerPct >= 88 ? 'text-rose-400' : powerPct >= 60 ? 'text-emerald-400' : 'text-amber-300'
+                  }`}
+                >
+                  {powerPct}%
+                </span>
 
                 <button
                   type="button"
@@ -1809,15 +1787,13 @@ export function BottomDock({
                     e.currentTarget.blur();
                     onQuickShoot();
                   }}
-                  title="Ấn nút để sút bóng ngay theo mức lực đang chọn (Phím Enter)"
-                  className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg text-sm font-bold tracking-wide transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    canShoot
-                      ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  title="Sút ngay (Enter)"
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    canShoot ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950' : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
                 >
-                  <Zap size={15} fill="currentColor" />
-                  <span>{lang === 'vi' ? 'Sút Bóng (Enter)' : 'Shoot (Enter)'}</span>
+                  <Zap size={13} fill="currentColor" />
+                  <span>{lang === 'vi' ? 'Sút (Enter)' : 'Shoot'}</span>
                 </button>
 
                 <button
@@ -1831,17 +1807,13 @@ export function BottomDock({
                   }}
                   onPointerUp={(e) => {
                     e.preventDefault();
-                    if (snapshot.phase === 'charging') {
-                      onReleaseCharge();
-                    }
+                    if (snapshot.phase === 'charging') onReleaseCharge();
                   }}
                   onPointerCancel={() => {
-                    if (snapshot.phase === 'charging') {
-                      onReleaseCharge();
-                    }
+                    if (snapshot.phase === 'charging') onReleaseCharge();
                   }}
-                  title="Nhấn hoặc giữ để tung cú sút xoáy cứa lòng cực đại (Phím C)"
-                  className={`touch-none flex items-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-bold tracking-wide transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  title="Sút xoáy cứa lòng (C)"
+                  className={`touch-none flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     snapshot.phase === 'charging'
                       ? 'bg-amber-400 text-slate-950'
                       : canShoot
@@ -1849,12 +1821,8 @@ export function BottomDock({
                       : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
                 >
-                  {snapshot.spin.curve < 0 ? (
-                    <CornerUpLeft size={16} strokeWidth={2.5} />
-                  ) : (
-                    <CornerUpRight size={16} strokeWidth={2.5} />
-                  )}
-                  <span>Sút Xoáy (C)</span>
+                  {snapshot.spin.curve < 0 ? <CornerUpLeft size={13} /> : <CornerUpRight size={13} />}
+                  <span>Xoáy (C)</span>
                 </button>
 
                 <button
@@ -1868,17 +1836,13 @@ export function BottomDock({
                   }}
                   onPointerUp={(e) => {
                     e.preventDefault();
-                    if (snapshot.phase === 'charging') {
-                      onReleaseCharge();
-                    }
+                    if (snapshot.phase === 'charging') onReleaseCharge();
                   }}
                   onPointerCancel={() => {
-                    if (snapshot.phase === 'charging') {
-                      onReleaseCharge();
-                    }
+                    if (snapshot.phase === 'charging') onReleaseCharge();
                   }}
-                  title="Giữ để căn lực sút (hoặc nhấn Space)"
-                  className={`touch-none px-3 py-2.5 rounded-lg text-xs sm:text-sm font-bold tracking-wide transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
+                  title="Giữ để căn lực sút (Space)"
+                  className={`touch-none px-2 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
                     snapshot.phase === 'charging'
                       ? 'bg-amber-400 border-amber-300 text-slate-950'
                       : canShoot
@@ -1886,542 +1850,408 @@ export function BottomDock({
                       : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
                   }`}
                 >
-                  {snapshot.phase === 'charging'
-                    ? 'Thả Để Sút!'
-                    : 'Giữ Lực (Space)'}
+                  {snapshot.phase === 'charging' ? 'Thả!' : 'Giữ Lực'}
                 </button>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginHorizontalCurve('left');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Sút xoáy theo chiều ngang vòng sang trái qua hàng rào đông"
-                    className={`touch-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      canShoot
-                        ? 'bg-cyan-500/18 hover:bg-cyan-500/30 border-cyan-400/50 text-cyan-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <MoveHorizontal size={14} />
-                    <span>Xoáy Ngang ↶</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginHorizontalCurve('right');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Sút xoáy theo chiều ngang vòng sang phải qua hàng rào đông"
-                    className={`touch-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      canShoot
-                        ? 'bg-cyan-500/18 hover:bg-cyan-500/30 border-cyan-400/50 text-cyan-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Xoáy Ngang ↷</span>
-                    <MoveHorizontal size={14} />
-                  </button>
-
-                  {snapshot.scenario.ballPos.z >= 14.5 ? (
-                    <button
-                      type="button"
-                      disabled={!canShoot}
-                      onClick={onShootCrossHeader}
-                      title="Treo bóng bổng vào vòng cấm cho đồng đội #9 bật cao đánh đầu"
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                        canShoot
-                          ? 'bg-amber-400/18 hover:bg-amber-400/30 border-amber-400/55 text-amber-200'
-                          : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                      }`}
-                    >
-                      <UserPlus size={14} />
-                      <span>Treo Đánh Đầu (#9)</span>
-                    </button>
-                  ) : null}
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('trivela');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Vẩy má ngoài Trivela vẽ đường cong cực dị (Phím T)"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'trivela'
-                        ? 'bg-fuchsia-400 border-fuchsia-200 text-slate-950'
-                        : canShoot
-                        ? 'bg-fuchsia-500/18 hover:bg-fuchsia-500/30 border-fuchsia-400/55 text-fuchsia-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Wind size={13} />
-                    <span>Trivela (T)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('knuckle');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Sút Knuckleball bóng lắc lư khó lường (Phím B)"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'knuckle'
-                        ? 'bg-orange-400 border-orange-200 text-slate-950'
-                        : canShoot
-                        ? 'bg-orange-500/18 hover:bg-orange-500/30 border-orange-400/55 text-orange-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Flame size={13} />
-                    <span>Knuckleball (B)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('dip_topspin');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Sút Topspin bổng qua hàng rào rồi chúi gắt xuống góc cao"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'dip_topspin'
-                        ? 'bg-emerald-400 border-emerald-200 text-slate-950'
-                        : canShoot
-                        ? 'bg-emerald-500/18 hover:bg-emerald-500/30 border-emerald-400/55 text-emerald-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <ArrowDown size={13} />
-                    <span>Topspin Chúi</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('power_shot');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Cú nã đại bác Power Shot siêu tốc độ"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'power_shot'
-                        ? 'bg-rose-400 border-rose-200 text-slate-950'
-                        : canShoot
-                        ? 'bg-rose-500/18 hover:bg-rose-500/30 border-rose-400/55 text-rose-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <Zap size={13} />
-                    <span>Power Shot</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('bicycle_volley');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Ngả Bàn Đèn móc bóng trên không cực đẹp"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'bicycle_volley'
-                        ? 'bg-amber-300 border-amber-100 text-slate-950'
-                        : canShoot
-                        ? 'bg-amber-500/18 hover:bg-amber-500/30 border-amber-400/55 text-amber-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Ngả Bàn Đèn</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('rabona');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Vắt chéo chân Rabona xoáy ảo diệu"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'rabona'
-                        ? 'bg-violet-400 border-violet-200 text-slate-950'
-                        : canShoot
-                        ? 'bg-violet-500/18 hover:bg-violet-500/30 border-violet-400/55 text-violet-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Rabona</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={!canShoot}
-                    onPointerDown={(e) => {
-                      if (!canShoot) return;
-                      e.preventDefault();
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      onBeginSkillCharge('chip_panenka');
-                    }}
-                    onPointerUp={(e) => {
-                      e.preventDefault();
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    onPointerCancel={() => {
-                      if (snapshot.phase === 'charging') {
-                        onReleaseCharge();
-                      }
-                    }}
-                    title="Lốp bóng Panenka bấm kỹ thuật qua đầu thủ môn"
-                    className={`touch-none flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                      snapshot.shotSkill === 'chip_panenka'
-                        ? 'bg-sky-300 border-sky-100 text-slate-950'
-                        : canShoot
-                        ? 'bg-sky-500/18 hover:bg-sky-500/30 border-sky-400/55 text-sky-200'
-                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
-                    }`}
-                  >
-                    <span>Lốp Panenka</span>
-                  </button>
-
-                  {snapshot.shotSkill !== 'normal' ? (
-                    <button
-                      type="button"
-                      disabled={!canShoot}
-                      onClick={() => onSetShotSkill('normal')}
-                      title="Trở về kiểu sút thường"
-                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-white/15 text-[11px] font-semibold text-slate-200 cursor-pointer"
-                    >
-                      Thường
-                    </button>
-                  ) : null}
-                </div>
-
-                <span className="hidden xl:inline text-[11px] text-slate-400 whitespace-nowrap">
-                  Kéo tâm vàng 360° mọi hướng · Đá bồi #9 tự động · C Xoáy · T Trivela · B Knuckle
-                </span>
-              </div>
-            </div>
-
-            {/* Right: Practice Focus (Free Kick, Penalty, Corner), Spot, Aura & 360 Camera */}
-            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-              {snapshot.mode === 'practice' ? (
-                <>
-                  <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded-lg border border-white/10">
-                    <button
-                      type="button"
-                      onClick={() => onSetPracticeFocus('freekick')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                        snapshot.practiceFocus === 'freekick'
-                          ? 'bg-emerald-500 text-slate-950'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      Sút Phạt
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSetPracticeFocus('penalty')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                        snapshot.practiceFocus === 'penalty'
-                          ? 'bg-rose-400 text-slate-950'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      Penalty 11m
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSetPracticeFocus('corner')}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                        snapshot.practiceFocus === 'corner'
-                          ? 'bg-cyan-400 text-slate-950'
-                          : 'text-slate-300 hover:text-white'
-                      }`}
-                    >
-                      Phạt Góc
-                    </button>
-                  </div>
-
-                  <select
-                    aria-label="Chọn vị trí đá phạt"
-                    value={snapshot.scenario.id}
-                    onChange={(e) => onSelectSpot(e.target.value)}
-                    className="h-9 px-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs font-medium text-slate-200 focus:outline-none focus:border-emerald-400 cursor-pointer"
-                  >
-                    {PRACTICE_SPOTS.map((spot) => (
-                      <option key={spot.id} value={spot.id}>
-                        {spot.label}
-                      </option>
-                    ))}
-                  </select>
-                </>
-              ) : null}
-
-              <select
-                aria-label={lang === 'vi' ? 'Thời tiết sân đấu' : 'Stadium Weather'}
-                value={snapshot.weather}
-                onChange={(e) => onSetWeather(e.target.value as WeatherType)}
-                className="h-9 px-2.5 bg-slate-900 border border-sky-400/35 rounded-lg text-xs font-semibold text-sky-200 focus:outline-none focus:border-sky-400 cursor-pointer"
-              >
-                {WEATHER_OPTIONS.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {lang === 'vi' ? `Thời tiết: ${w.labelVi}` : `Weather: ${w.labelEn}`}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                aria-label={lang === 'vi' ? 'Skin Cầu Thủ' : 'Player Skin'}
-                value={snapshot.playerSkinId}
-                onChange={(e) => onSetPlayerSkin(e.target.value as PlayerSkinId)}
-                className="h-9 px-2.5 bg-slate-900 border border-emerald-400/35 rounded-lg text-xs font-semibold text-emerald-200 focus:outline-none focus:border-emerald-400 cursor-pointer"
-              >
-                {SKIN_ORDER.map((skinId) => (
-                  <option key={skinId} value={skinId}>
-                    Skin: {lang === 'vi' ? PLAYER_SKINS[skinId].nameVi : PLAYER_SKINS[skinId].nameEn}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                aria-label={lang === 'vi' ? 'Hào Quang Chạy' : 'Running Aura'}
-                value={snapshot.runningAuraId}
-                onChange={(e) => onSetRunningAura(e.target.value as RunningAuraId)}
-                className="h-9 px-2.5 bg-slate-900 border border-amber-400/35 rounded-lg text-xs font-semibold text-amber-200 focus:outline-none focus:border-amber-400 cursor-pointer"
-              >
-                {RUNNING_AURA_ORDER.map((auraId) => (
-                  <option key={auraId} value={auraId}>
-                    {lang === 'vi' ? `Hào quang: ${RUNNING_AURAS[auraId].nameVi}` : `Aura: ${RUNNING_AURAS[auraId].nameEn}`}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const order: CameraPreset[] = [
-                    'kicker',
-                    'broadcast',
-                    'behind_goal',
-                  ];
-                  const next =
-                    order[
-                      (order.indexOf(snapshot.cameraPreset) + 1) % order.length
-                    ];
-                  onSetCamera(next);
-                }}
-                title="Đổi góc camera"
-                className="flex items-center gap-1.5 h-9 px-3 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-lg text-xs font-medium text-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Camera size={14} />
-                <span>
-                  {snapshot.cameraPreset === 'kicker'
-                    ? 'Góc Sút'
-                    : snapshot.cameraPreset === 'broadcast'
-                    ? 'Toàn Cảnh'
-                    : 'Sau Gôn'}
-                </span>
-              </button>
-
-              {/* Free 360-degree camera orbit controls */}
-              <div className="flex items-center gap-1 bg-slate-900/95 p-0.5 rounded-lg border border-sky-400/30">
+              {/* Single Flat Horizontal Skills Row */}
+              <div className="flex items-center gap-1 overflow-x-auto">
                 <button
                   type="button"
-                  onClick={() => onToggleCameraOrbit()}
-                  title={
-                    lang === 'vi'
-                      ? 'Bật chế độ kéo chuột trái xoay camera 360° mọi hướng (hoặc giữ chuột phải kéo bất kỳ lúc nào)'
-                      : 'Toggle left-drag 360° camera rotation (or right-drag anytime)'
-                  }
-                  className={`flex items-center gap-1 h-8 px-2.5 rounded-md text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                    snapshot.cameraOrbitMode
-                      ? 'bg-sky-400 text-slate-950'
-                      : 'text-sky-300 hover:bg-slate-800'
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginHorizontalCurve('left');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    canShoot ? 'bg-cyan-500/18 hover:bg-cyan-500/30 border-cyan-400/50 text-cyan-200' : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
                   }`}
                 >
-                  <Compass size={13} />
-                  <span>{lang === 'vi' ? 'Xoay 360°' : '360°'}</span>
+                  <MoveHorizontal size={12} />
+                  <span>Xoáy ↶</span>
                 </button>
+
                 <button
                   type="button"
-                  onClick={() => onNudgeCameraOrbit(-0.32, 0)}
-                  title="Xoay camera sang trái"
-                  aria-label="Xoay camera sang trái"
-                  className="flex items-center justify-center w-7 h-8 rounded-md text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginHorizontalCurve('right');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    canShoot ? 'bg-cyan-500/18 hover:bg-cyan-500/30 border-cyan-400/50 text-cyan-200' : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
-                  <ArrowLeft size={13} />
+                  <span>Xoáy ↷</span>
+                  <MoveHorizontal size={12} />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onNudgeCameraOrbit(0.32, 0)}
-                  title="Xoay camera sang phải"
-                  aria-label="Xoay camera sang phải"
-                  className="flex items-center justify-center w-7 h-8 rounded-md text-slate-200 hover:bg-slate-800 cursor-pointer"
-                >
-                  <ArrowRight size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNudgeCameraOrbit(0, -0.18)}
-                  title="Nâng góc camera lên cao"
-                  aria-label="Nâng góc camera lên cao"
-                  className="flex items-center justify-center w-7 h-8 rounded-md text-slate-200 hover:bg-slate-800 cursor-pointer"
-                >
-                  <ArrowUp size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNudgeCameraOrbit(0, 0.18)}
-                  title="Hạ góc camera xuống sát sân"
-                  aria-label="Hạ góc camera xuống sát sân"
-                  className="flex items-center justify-center w-7 h-8 rounded-md text-slate-200 hover:bg-slate-800 cursor-pointer"
-                >
-                  <ArrowDown size={13} />
-                </button>
-                {snapshot.cameraHasCustomOrbit ? (
+
+                {canCrossHeader ? (
                   <button
                     type="button"
-                    onClick={() => onResetCameraOrbit()}
-                    title="Đặt lại góc camera mặc định"
-                    className="flex items-center gap-1 h-8 px-2 rounded-md bg-amber-400/20 hover:bg-amber-400/30 text-[11px] font-bold text-amber-200 whitespace-nowrap cursor-pointer"
+                    disabled={!canShoot}
+                    onClick={onShootCrossHeader}
+                    title="Treo bóng bổng cho đồng đội #9 đánh đầu & đá bồi"
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                      canShoot
+                        ? isCornerSpot
+                          ? 'bg-amber-400 hover:bg-amber-300 border-amber-200 text-slate-950'
+                          : 'bg-amber-400/18 hover:bg-amber-400/30 border-amber-400/55 text-amber-200'
+                        : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                    }`}
                   >
-                    <RotateCcw size={12} />
-                    <span>Đặt Lại</span>
+                    <UserPlus size={12} />
+                    <span>Treo (#9)</span>
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('trivela');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'trivela'
+                      ? 'bg-fuchsia-400 border-fuchsia-200 text-slate-950'
+                      : canShoot
+                      ? 'bg-fuchsia-500/18 hover:bg-fuchsia-500/30 border-fuchsia-400/55 text-fuchsia-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <Wind size={11} />
+                  <span>Trivela (T)</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('knuckle');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'knuckle'
+                      ? 'bg-orange-400 border-orange-200 text-slate-950'
+                      : canShoot
+                      ? 'bg-orange-500/18 hover:bg-orange-500/30 border-orange-400/55 text-orange-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <Flame size={11} />
+                  <span>Knuckle (B)</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('dip_topspin');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'dip_topspin'
+                      ? 'bg-emerald-400 border-emerald-200 text-slate-950'
+                      : canShoot
+                      ? 'bg-emerald-500/18 hover:bg-emerald-500/30 border-emerald-400/55 text-emerald-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <ArrowDown size={11} />
+                  <span>Topspin</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('power_shot');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'power_shot'
+                      ? 'bg-rose-400 border-rose-200 text-slate-950'
+                      : canShoot
+                      ? 'bg-rose-500/18 hover:bg-rose-500/30 border-rose-400/55 text-rose-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <Zap size={11} />
+                  <span>Power Shot</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('bicycle_volley');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'bicycle_volley'
+                      ? 'bg-amber-300 border-amber-100 text-slate-950'
+                      : canShoot
+                      ? 'bg-amber-500/18 hover:bg-amber-500/30 border-amber-400/55 text-amber-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <span>Ngả Bàn Đèn</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('rabona');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'rabona'
+                      ? 'bg-violet-400 border-violet-200 text-slate-950'
+                      : canShoot
+                      ? 'bg-violet-500/18 hover:bg-violet-500/30 border-violet-400/55 text-violet-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <span>Rabona</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canShoot}
+                  onPointerDown={(e) => {
+                    if (!canShoot) return;
+                    e.preventDefault();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    onBeginSkillCharge('chip_panenka');
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  onPointerCancel={() => {
+                    if (snapshot.phase === 'charging') onReleaseCharge();
+                  }}
+                  className={`touch-none px-2 py-0.5 rounded text-[11px] font-bold whitespace-nowrap shrink-0 cursor-pointer border ${
+                    snapshot.shotSkill === 'chip_panenka'
+                      ? 'bg-sky-300 border-sky-100 text-slate-950'
+                      : canShoot
+                      ? 'bg-sky-500/18 hover:bg-sky-500/30 border-sky-400/55 text-sky-200'
+                      : 'bg-slate-900 border-white/5 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <span>Panenka</span>
+                </button>
+
+                {snapshot.shotSkill !== 'normal' ? (
+                  <button
+                    type="button"
+                    disabled={!canShoot}
+                    onClick={() => onSetShotSkill('normal')}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/15 text-[10.5px] font-semibold text-slate-200 cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    Thường
                   </button>
                 ) : null}
               </div>
-
-              {snapshot.mode === 'practice' ? (
-                <button
-                  type="button"
-                  onClick={onRetrySpot}
-                  title="Đặt lại bóng"
-                  className="flex items-center justify-center w-9 h-9 bg-slate-900 hover:bg-slate-800 border border-white/10 rounded-lg text-slate-200 transition-colors cursor-pointer"
-                >
-                  <RotateCcw size={14} />
-                </button>
-              ) : null}
             </div>
           </div>
         )}
+
+        {/* Dedicated Compact Curve & Wind Studio Strip when practicing Technical Curve Lab */}
+        {!isMatchMode &&
+        !isGkTurn &&
+        snapshot.mode === 'practice' &&
+        snapshot.practiceFocus === 'curve_lab' ? (
+          <div className="mt-1.5 pt-1.5 border-t border-cyan-400/25 flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2 overflow-x-auto">
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-cyan-300 mr-1 whitespace-nowrap">
+                  <Wind size={12} />
+                  <span>{lang === 'vi' ? 'Xoáy Kỹ Thuật' : 'Curve Studio'}</span>
+                </span>
+                {CURVE_LAB_SPOTS.map((spot) => {
+                  const active = snapshot.scenario.id === spot.id;
+                  return (
+                    <button
+                      key={spot.id}
+                      type="button"
+                      onClick={() => onSelectSpot(spot.id)}
+                      className={`px-1.5 py-0.5 rounded text-[10.5px] font-bold border transition-colors whitespace-nowrap cursor-pointer ${
+                        active
+                          ? 'bg-cyan-400 border-cyan-200 text-slate-950'
+                          : 'bg-slate-900/90 border-white/10 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {spot.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] font-mono-tabular shrink-0">
+                <span className="text-slate-300">
+                  Cong:{' '}
+                  <strong className="text-cyan-300">
+                    {snapshot.previewBendMeters >= 0 ? '+' : '-'}
+                    {Math.abs(snapshot.previewBendMeters).toFixed(2)}m
+                  </strong>
+                </span>
+                <span className="text-slate-600" aria-hidden="true">·</span>
+                <span className="text-slate-300">
+                  <strong className="text-amber-300">
+                    {Math.round(
+                      Math.hypot(snapshot.spin.curve, snapshot.spin.dip) *
+                        (snapshot.shotSkill === 'trivela'
+                          ? 1280
+                          : snapshot.shotSkill === 'curler'
+                          ? 1190
+                          : 980),
+                    )}{' '}
+                    rpm
+                  </strong>
+                </span>
+                {snapshot.customWindActive ? (
+                  <button
+                    type="button"
+                    onClick={onResetCustomWind}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/15 text-[10px] font-sans font-bold text-slate-200 cursor-pointer whitespace-nowrap"
+                  >
+                    Đặt lại gió
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              <div className="px-2 py-1.5 rounded-lg bg-slate-900/80 border border-sky-400/25 flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-1 overflow-x-auto">
+                  <span className="text-[10.5px] font-bold text-sky-300 whitespace-nowrap">
+                    Gió (m/s)
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button type="button" onClick={() => onSetCustomWind({ x: -4.5, z: snapshot.scenario.wind.z })} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-sky-200 cursor-pointer whitespace-nowrap">← Trái</button>
+                    <button type="button" onClick={() => onSetCustomWind({ x: 0, z: 0 })} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-slate-200 cursor-pointer whitespace-nowrap">Lặng</button>
+                    <button type="button" onClick={() => onSetCustomWind({ x: 4.5, z: snapshot.scenario.wind.z })} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-sky-200 cursor-pointer whitespace-nowrap">Phải →</button>
+                    <button type="button" onClick={() => onSetCustomWind({ x: snapshot.scenario.wind.x, z: -3.5 })} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap">Ngược</button>
+                    <button type="button" onClick={() => onSetCustomWind({ x: snapshot.scenario.wind.x, z: 3.5 })} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-emerald-200 cursor-pointer whitespace-nowrap">Thuận</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300">
+                    <span className="whitespace-nowrap">Ngang</span>
+                    <input type="range" min={-6} max={6} step={0.2} value={snapshot.scenario.wind.x} onChange={(e) => onSetCustomWind({ x: Number(e.target.value), z: snapshot.scenario.wind.z })} className="flex-1 h-1 accent-sky-400 cursor-pointer" />
+                    <strong className="font-mono-tabular text-sky-300 w-9 text-right">{snapshot.scenario.wind.x > 0 ? '+' : ''}{snapshot.scenario.wind.x.toFixed(1)}</strong>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300">
+                    <span className="whitespace-nowrap">Dọc</span>
+                    <input type="range" min={-5} max={5} step={0.2} value={snapshot.scenario.wind.z} onChange={(e) => onSetCustomWind({ x: snapshot.scenario.wind.x, z: Number(e.target.value) })} className="flex-1 h-1 accent-sky-400 cursor-pointer" />
+                    <strong className="font-mono-tabular text-sky-300 w-9 text-right">{snapshot.scenario.wind.z > 0 ? '+' : ''}{snapshot.scenario.wind.z.toFixed(1)}</strong>
+                  </label>
+                </div>
+              </div>
+
+              <div className="px-2 py-1.5 rounded-lg bg-slate-900/80 border border-emerald-400/25 flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-1 overflow-x-auto">
+                  <span className="text-[10.5px] font-bold text-emerald-300 whitespace-nowrap">
+                    Xoáy &amp; Chúi
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button type="button" disabled={!canShoot} onClick={() => { onSetShotSkill('curler'); onSpinChange({ curve: -0.92, dip: 0.38 }); }} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-emerald-200 cursor-pointer whitespace-nowrap disabled:opacity-40">Cứa Trái</button>
+                    <button type="button" disabled={!canShoot} onClick={() => { onSetShotSkill('curler'); onSpinChange({ curve: 0.92, dip: 0.38 }); }} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-emerald-200 cursor-pointer whitespace-nowrap disabled:opacity-40">Cứa Phải</button>
+                    <button type="button" disabled={!canShoot} onClick={() => { onSetShotSkill('trivela'); onSpinChange({ curve: -0.96, dip: 0.32 }); }} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-fuchsia-200 cursor-pointer whitespace-nowrap disabled:opacity-40">Trivela</button>
+                    <button type="button" disabled={!canShoot} onClick={() => { onSetShotSkill('dip_topspin'); onSpinChange({ curve: -0.25, dip: 0.92 }); }} className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-white/10 text-[10px] font-bold text-amber-200 cursor-pointer whitespace-nowrap disabled:opacity-40">Chúi</button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300">
+                    <span className="whitespace-nowrap">Curve</span>
+                    <input type="range" min={-1} max={1} step={0.02} disabled={!canShoot} value={snapshot.spin.curve} onChange={(e) => onSpinChange({ curve: Number(e.target.value), dip: snapshot.spin.dip })} className="flex-1 h-1 accent-emerald-400 cursor-pointer disabled:opacity-40" />
+                    <strong className="font-mono-tabular text-emerald-300 w-9 text-right">{Math.round(snapshot.spin.curve * 100)}%</strong>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[10.5px] text-slate-300">
+                    <span className="whitespace-nowrap">Dip</span>
+                    <input type="range" min={-1} max={1} step={0.02} disabled={!canShoot} value={snapshot.spin.dip} onChange={(e) => onSpinChange({ curve: snapshot.spin.curve, dip: Number(e.target.value) })} className="flex-1 h-1 accent-emerald-400 cursor-pointer disabled:opacity-40" />
+                    <strong className="font-mono-tabular text-emerald-300 w-9 text-right">{Math.round(snapshot.spin.dip * 100)}%</strong>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
     </>

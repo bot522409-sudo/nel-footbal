@@ -602,12 +602,23 @@ export function ShotResultOverlay({
         </div>
 
         <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-slate-300 font-mono-tabular">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 font-mono-tabular">
             <span>Tốc độ {out.speedKmh} km/h</span>
             <span className="text-slate-600" aria-hidden="true">
               ·
             </span>
             <span>Độ xoáy {out.spinRpm} rpm</span>
+            {typeof out.curveBendMeters === 'number' &&
+            Math.abs(out.curveBendMeters) >= 0.15 ? (
+              <>
+                <span className="text-slate-600" aria-hidden="true">
+                  ·
+                </span>
+                <span className="text-cyan-300">
+                  Độ cong {Math.abs(out.curveBendMeters).toFixed(2)} m
+                </span>
+              </>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
