@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { Analytics } from '@vercel/analytics/react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminPanelModal } from './components/AdminPanelModal';
@@ -2326,6 +2327,9 @@ export default function App() {
           </div>
         </div>
       ) : null}
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </main>
   );
 }
